@@ -63,6 +63,26 @@ def json_response(data: dict, status: int = 200) -> web.Response:
     )
 
 
+def _require_connected() -> Optional[web.Response]:
+    """Return a 503 response if not connected, None if OK."""
+    if not machine.connected:
+        return json_response({"error": "Not connected", "connected": False}, 503)
+    return None
+
+
+async def _parse_body(request: web.Request) -> dict:
+    """Safely parse JSON body, defaulting to empty dict."""
+    try:
+        return await request.json()
+    except Exception:
+        return {}
+
+
+def _normalize_beverage_name(name: str) -> str:
+    """Normalize a beverage name for lookup."""
+    return name.lower().replace(" ", "_")
+
+
 async def handle_ui(request: web.Request) -> web.Response:
     """GET / - Serve the Web UI."""
     ui_path = Path(__file__).parent / "ui" / "index.html"
@@ -121,8 +141,8 @@ async def handle_status(request: web.Request) -> web.Response:
 
 async def handle_power(request: web.Request) -> web.Response:
     """POST /api/power — Turn machine on."""
-    if not machine.connected:
-        return json_response({"error": "Not connected", "connected": False}, 503)
+    if err := _require_connected():
+        return err
 
     ok = await machine.send(cmd_power_on())
     return json_response({"success": ok, "action": "power_on"})
@@ -130,15 +150,11 @@ async def handle_power(request: web.Request) -> web.Response:
 
 async def handle_brew(request: web.Request) -> web.Response:
     """POST /api/brew — Brew a beverage. Prefers verified commands."""
-    if not machine.connected:
-        return json_response({"error": "Not connected", "connected": False}, 503)
+    if err := _require_connected():
+        return err
 
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-
-    bev_name = body.get("beverage", "coffee").lower().replace(" ", "_")
+    body = await _parse_body(request)
+    bev_name = _normalize_beverage_name(body.get("beverage", "coffee"))
 
     # Try verified command first (known-good from HA integration)
     verified = cmd_brew_verified(bev_name)
@@ -184,15 +200,11 @@ async def handle_brew(request: web.Request) -> web.Response:
 
 async def handle_brew_stop(request: web.Request) -> web.Response:
     """POST /api/brew/stop — Stop current brew."""
-    if not machine.connected:
-        return json_response({"error": "Not connected"}, 503)
+    if err := _require_connected():
+        return err
 
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-
-    bev_name = body.get("beverage", "coffee").lower().replace(" ", "_")
+    body = await _parse_body(request)
+    bev_name = _normalize_beverage_name(body.get("beverage", "coffee"))
 
     verified = cmd_stop_verified(bev_name)
     if verified:
@@ -207,20 +219,17 @@ async def handle_brew_stop(request: web.Request) -> web.Response:
 
 async def handle_steam(request: web.Request) -> web.Response:
     """POST /api/steam — Start steam."""
-    if not machine.connected:
-        return json_response({"error": "Not connected"}, 503)
+    if err := _require_connected():
+        return err
     ok = await machine.send(cmd_steam())
     return json_response({"success": ok, "action": "steam"})
 
 
 async def handle_hot_water(request: web.Request) -> web.Response:
     """POST /api/hot-water — Dispense hot water."""
-    if not machine.connected:
-        return json_response({"error": "Not connected"}, 503)
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
+    if err := _require_connected():
+        return err
+    body = await _parse_body(request)
     quantity = body.get("quantity_ml", 250)
     ok = await machine.send(cmd_hot_water(quantity))
     return json_response({"success": ok, "action": "hot_water", "quantity_ml": quantity})
@@ -228,12 +237,9 @@ async def handle_hot_water(request: web.Request) -> web.Response:
 
 async def handle_profile(request: web.Request) -> web.Response:
     """POST /api/profile — Select profile."""
-    if not machine.connected:
-        return json_response({"error": "Not connected"}, 503)
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
+    if err := _require_connected():
+        return err
+    body = await _parse_body(request)
     profile_id = body.get("profile_id", 1)
     ok = await machine.send(cmd_profile_select(profile_id))
     return json_response({"success": ok, "action": "profile_select", "profile_id": profile_id})
@@ -414,47 +420,12 @@ async def cmd_serve(address: str, port: int = 8080):
         await runner.cleanup()
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
+# ── Main (delegates to cli.py for direct invocation) ─────────────────────────
 
 def main():
-    if len(sys.argv) < 2:
-        print("De'Longhi Coffee Machine HTTP Server")
-        print()
-        print("Usage:")
-        print("  python server.py scan                              Scan for machines")
-        print("  python server.py serve --address XX:XX:XX:XX:XX:XX Start server + UI")
-        print("  python server.py serve --address XX:XX --port 9090 Custom port")
-        print()
-        sys.exit(0)
-
-    command = sys.argv[1]
-
-    if command == "scan":
-        asyncio.run(cmd_scan())
-
-    elif command == "serve":
-        address = None
-        port = PORT
-        i = 2
-        while i < len(sys.argv):
-            if sys.argv[i] == "--address" and i + 1 < len(sys.argv):
-                address = sys.argv[i + 1]
-                i += 2
-            elif sys.argv[i] == "--port" and i + 1 < len(sys.argv):
-                port = int(sys.argv[i + 1])
-                i += 2
-            else:
-                i += 1
-
-        if not address:
-            print("Error: --address is required. Run 'python server.py scan' first.")
-            sys.exit(1)
-
-        asyncio.run(cmd_serve(address, port))
-
-    else:
-        print(f"Unknown command: {command}")
-        sys.exit(1)
+    """Legacy entry point — delegates to barista.cli."""
+    from barista.cli import main as cli_main
+    cli_main()
 
 
 if __name__ == "__main__":

@@ -108,6 +108,9 @@ class NozzleState(IntEnum):
     MILK_CLEAN       = 3
 
 
+_NOZZLE_VALUES = frozenset(e.value for e in NozzleState)
+
+
 # ── Packet Building ───────────────────────────────────────────────────────────
 
 def compute_crc(data: bytes) -> bytes:
@@ -138,12 +141,12 @@ def verify_packet(data: bytes) -> bool:
 
 def cmd_power_on() -> bytes:
     """Turn the machine on."""
-    return bytes([0x0D, 0x07, 0x84, 0x0F, 0x02, 0x01, 0x55, 0x12])
+    return build_packet([0x84, 0x0F, 0x02, 0x01])
 
 
 def cmd_monitor() -> bytes:
     """Request machine status (MonitorV2)."""
-    return bytes([0x0D, 0x05, 0x75, 0x0F, 0xDA, 0x25])
+    return build_packet([0x75, 0x0F])
 
 
 def cmd_brew(
@@ -235,8 +238,8 @@ def cmd_brew_stop(beverage: BeverageId) -> bytes:
 
 
 def cmd_steam() -> bytes:
-    """Start steam."""
-    return build_packet([0x83, 0xF0, 0x11, 0x01, 0x09, 0x03, 0x84, 0x1C, 0x01, 0x06])
+    """Start steam. Uses the verified command."""
+    return VERIFIED_COMMANDS["steam"]
 
 
 def cmd_hot_water(quantity_ml: int = 250) -> bytes:
@@ -292,7 +295,7 @@ class MachineStatus:
             "sub_state": self.sub_state,
             "is_ready": self.is_ready,
             "alarms": [a.name for a in self.alarms],
-            "nozzle": NozzleState(self.nozzle).name if self.nozzle in [e.value for e in NozzleState] else f"UNKNOWN({self.nozzle})",
+            "nozzle": NozzleState(self.nozzle).name if self.nozzle in _NOZZLE_VALUES else f"UNKNOWN({self.nozzle})",
             "raw_hex": self.raw.hex(" "),
         }
 
@@ -309,7 +312,7 @@ def parse_monitor_v2(data: bytes) -> Optional[MachineStatus]:
     status = MachineStatus()
     status.raw = data
 
-    status.nozzle = NozzleState(data[4]) if data[4] in [e.value for e in NozzleState] else data[4]
+    status.nozzle = NozzleState(data[4]) if data[4] in _NOZZLE_VALUES else data[4]
     status.switches = data[5] + (data[6] << 8)
 
     alarm_bits = data[7] + (data[8] << 8)

@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Verify package imports
+        run: |
+          python -c "from barista.protocol import BeverageId, cmd_brew, cmd_monitor, compute_crc, VERIFIED_COMMANDS"
+          python -c "from barista.ble import DelonghiBLE"
+          python -c "from barista.server import create_app"
+          python -c "from barista.cli import main"
+
+      - name: Verify CLI
+        run: python -m barista --help
+
+      - name: Verify protocol integrity
+        run: |
+          python -c "
+          from barista.protocol import *
+
+          # Verify known-good CRC values
+          assert cmd_power_on() == bytes([0x0d, 0x07, 0x84, 0x0f, 0x02, 0x01, 0x55, 0x12])
+          assert cmd_monitor() == bytes([0x0d, 0x05, 0x75, 0x0f, 0xda, 0x25])
+
+          # Verify verified commands have correct CRC
+          for name, cmd in VERIFIED_COMMANDS.items():
+              assert verify_packet(cmd), f'CRC mismatch in verified command: {name}'
+
+          # Verify all beverage IDs are defined
+          assert len(get_beverage_names()) >= 20
+
+          print('All protocol checks passed')
+          "
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build package
+        run: |
+          pip install build
+          python -m build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}

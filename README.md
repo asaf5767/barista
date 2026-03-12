@@ -14,6 +14,10 @@ An open-source BLE-to-HTTP bridge that turns your De'Longhi ECAM coffee machine 
 
 **Brew from your terminal** · **Beautiful web UI** · **HTTP API for automations** · **Works on Windows, macOS, Linux**
 
+<br>
+
+<img src="assets/demo.gif" alt="Barista Demo" width="100%">
+
 </div>
 
 <br>

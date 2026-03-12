@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Barista</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,700;1,400&display=swap');
+
+  :root {
+    --bg-deep: #0c0a09;
+    --bg-card: #1c1917;
+    --bg-card-hover: #292524;
+    --bg-surface: #171412;
+    --accent: #d97706;
+    --accent-glow: #f59e0b;
+    --accent-soft: rgba(217, 119, 6, 0.15);
+    --text: #fafaf9;
+    --text-muted: #a8a29e;
+    --text-dim: #78716c;
+    --success: #22c55e;
+    --danger: #ef4444;
+    --border: rgba(168, 162, 158, 0.08);
+    --radius: 16px;
+    --radius-sm: 10px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: var(--bg-deep);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* ── Ambient Background ─────────────────────────────── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 80% 60% at 20% 10%, rgba(217, 119, 6, 0.06) 0%, transparent 60%),
+      radial-gradient(ellipse 60% 50% at 80% 90%, rgba(180, 83, 9, 0.04) 0%, transparent 50%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ── Layout ─────────────────────────────────────────── */
+  .app { position: relative; z-index: 1; max-width: 1100px; margin: 0 auto; padding: 24px 20px 60px; }
+
+  /* ── Header ─────────────────────────────────────────── */
+  .header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 0 32px; border-bottom: 1px solid var(--border); margin-bottom: 32px;
+  }
+  .header-left { display: flex; align-items: center; gap: 16px; }
+  .logo {
+    width: 48px; height: 48px; border-radius: 14px;
+    background: linear-gradient(135deg, var(--accent), #92400e);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 24px; box-shadow: 0 4px 20px rgba(217, 119, 6, 0.3);
+  }
+  .brand h1 {
+    font-family: 'Playfair Display', serif; font-size: 24px; font-weight: 700;
+    letter-spacing: -0.5px;
+  }
+  .brand p { font-size: 12px; color: var(--text-dim); letter-spacing: 1.5px; text-transform: uppercase; margin-top: 2px; }
+
+  .status-badge {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 16px; border-radius: 100px;
+    background: var(--bg-card); border: 1px solid var(--border);
+    font-size: 13px; font-weight: 500;
+  }
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--text-dim); flex-shrink: 0;
+  }
+  .status-dot.connected { background: var(--success); box-shadow: 0 0 8px rgba(34, 197, 94, 0.5); }
+  .status-dot.ready { background: var(--accent-glow); box-shadow: 0 0 8px rgba(245, 158, 11, 0.5); animation: pulse 2s infinite; }
+  .status-dot.error { background: var(--danger); box-shadow: 0 0 8px rgba(239, 68, 68, 0.5); }
+
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+  /* ── Machine Status Bar ─────────────────────────────── */
+  .machine-bar {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px; margin-bottom: 32px;
+  }
+  .stat-card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius-sm); padding: 16px; text-align: center;
+    transition: all 0.2s;
+  }
+  .stat-card:hover { border-color: rgba(217, 119, 6, 0.2); }
+  .stat-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+  .stat-value { font-size: 18px; font-weight: 600; }
+  .stat-value.good { color: var(--success); }
+  .stat-value.warn { color: var(--accent-glow); }
+  .stat-value.bad { color: var(--danger); }
+
+  /* ── Section Titles ─────────────────────────────────── */
+  .section-title {
+    font-family: 'Playfair Display', serif; font-size: 20px; font-weight: 700;
+    margin-bottom: 16px; padding-left: 4px;
+  }
+  .section-title span { color: var(--accent); }
+
+  /* ── Beverage Grid ──────────────────────────────────── */
+  .beverages-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 14px; margin-bottom: 40px;
+  }
+
+  .bev-card {
+    position: relative; background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 20px 14px 16px; text-align: center;
+    cursor: pointer; transition: all 0.25s ease; overflow: hidden;
+    user-select: none;
+  }
+  .bev-card:hover {
+    transform: translateY(-3px);
+    border-color: rgba(217, 119, 6, 0.3);
+    box-shadow: 0 8px 30px rgba(0,0,0,0.3), 0 0 40px var(--accent-soft);
+  }
+  .bev-card:active { transform: scale(0.97); }
+  .bev-card.brewing {
+    border-color: var(--accent);
+    box-shadow: 0 0 40px rgba(217, 119, 6, 0.2);
+    animation: brew-glow 1.5s ease-in-out infinite;
+  }
+  @keyframes brew-glow {
+    0%, 100% { box-shadow: 0 0 20px rgba(217, 119, 6, 0.15); }
+    50% { box-shadow: 0 0 40px rgba(217, 119, 6, 0.3); }
+  }
+
+  .bev-icon { font-size: 36px; margin-bottom: 10px; display: block; line-height: 1; }
+  .bev-name { font-size: 13px; font-weight: 600; margin-bottom: 4px; letter-spacing: -0.2px; }
+  .bev-detail { font-size: 11px; color: var(--text-dim); }
+  .bev-badge {
+    position: absolute; top: 8px; right: 8px;
+    font-size: 9px; padding: 2px 6px; border-radius: 4px;
+    background: var(--accent-soft); color: var(--accent-glow);
+    font-weight: 600; letter-spacing: 0.5px;
+  }
+
+  /* Ripple on click */
+  .bev-card .ripple {
+    position: absolute; border-radius: 50%;
+    background: rgba(217, 119, 6, 0.3);
+    transform: scale(0); animation: ripple-out 0.6s ease-out;
+    pointer-events: none;
+  }
+  @keyframes ripple-out { to { transform: scale(4); opacity: 0; } }
+
+  /* ── Controls Section ───────────────────────────────── */
+  .controls-row {
+    display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 40px;
+  }
+  .ctrl-btn {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 20px; border-radius: var(--radius-sm);
+    background: var(--bg-card); border: 1px solid var(--border);
+    color: var(--text); font-size: 13px; font-weight: 500;
+    cursor: pointer; transition: all 0.2s; font-family: inherit;
+  }
+  .ctrl-btn:hover { border-color: rgba(217, 119, 6, 0.3); background: var(--bg-card-hover); }
+  .ctrl-btn:active { transform: scale(0.97); }
+  .ctrl-btn.primary { background: linear-gradient(135deg, var(--accent), #92400e); border: none; font-weight: 600; }
+  .ctrl-btn.primary:hover { box-shadow: 0 4px 20px rgba(217, 119, 6, 0.3); }
+  .ctrl-btn.danger { border-color: rgba(239, 68, 68, 0.3); color: var(--danger); }
+  .ctrl-btn.danger:hover { background: rgba(239, 68, 68, 0.1); }
+  .ctrl-btn .icon { font-size: 16px; }
+
+  /* ── Toast / Notification ───────────────────────────── */
+  .toast-container { position: fixed; top: 24px; right: 24px; z-index: 1000; display: flex; flex-direction: column; gap: 8px; }
+  .toast {
+    padding: 14px 20px; border-radius: var(--radius-sm);
+    background: var(--bg-card); border: 1px solid var(--border);
+    font-size: 13px; font-weight: 500;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+    animation: toast-in 0.3s ease-out;
+    display: flex; align-items: center; gap: 10px;
+    max-width: 360px;
+  }
+  .toast.success { border-color: rgba(34, 197, 94, 0.3); }
+  .toast.error { border-color: rgba(239, 68, 68, 0.3); }
+  .toast.info { border-color: rgba(217, 119, 6, 0.3); }
+  @keyframes toast-in { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: translateX(0); } }
+  .toast-exit { animation: toast-out 0.3s ease-in forwards; }
+  @keyframes toast-out { to { opacity: 0; transform: translateX(40px); } }
+
+  /* ── Activity Log ───────────────────────────────────── */
+  .log-section { margin-bottom: 32px; }
+  .log-list { display: flex; flex-direction: column; gap: 6px; max-height: 200px; overflow-y: auto; }
+  .log-entry {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; border-radius: var(--radius-sm);
+    background: var(--bg-card); border: 1px solid var(--border);
+    font-size: 12px;
+  }
+  .log-time { color: var(--text-dim); font-variant-numeric: tabular-nums; min-width: 60px; }
+  .log-msg { color: var(--text-muted); }
+  .log-entry .log-icon { font-size: 14px; }
+
+  /* ── Brew Modal ─────────────────────────────────────── */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0; z-index: 500;
+    background: rgba(0,0,0,0.7); backdrop-filter: blur(8px);
+    align-items: center; justify-content: center;
+  }
+  .modal-overlay.active { display: flex; }
+  .modal {
+    background: var(--bg-surface); border: 1px solid var(--border);
+    border-radius: 20px; padding: 32px; max-width: 420px; width: 90%;
+    animation: modal-in 0.3s ease-out;
+  }
+  @keyframes modal-in { from { opacity: 0; transform: scale(0.95) translateY(10px); } to { opacity: 1; transform: scale(1); } }
+  .modal h2 { font-family: 'Playfair Display', serif; font-size: 22px; margin-bottom: 6px; }
+  .modal p { color: var(--text-muted); font-size: 13px; margin-bottom: 20px; }
+  .modal-icon { font-size: 48px; text-align: center; margin-bottom: 12px; display: block; }
+
+  .brew-progress {
+    height: 4px; background: var(--bg-card); border-radius: 2px;
+    overflow: hidden; margin: 20px 0;
+  }
+  .brew-progress-bar {
+    height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-glow));
+    border-radius: 2px; transition: width 0.5s ease; width: 0%;
+  }
+  .brew-progress-bar.active { animation: progress-sweep 8s ease-in-out forwards; }
+  @keyframes progress-sweep { 0% { width: 0%; } 30% { width: 40%; } 70% { width: 75%; } 100% { width: 100%; } }
+
+  .modal-actions { display: flex; gap: 10px; margin-top: 20px; }
+  .modal-actions .ctrl-btn { flex: 1; justify-content: center; }
+
+  /* ── Scrollbar ──────────────────────────────────────── */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--text-dim); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+  /* ── Offline Banner ──────────────────────────────────── */
+  .offline-banner {
+    display: none; padding: 24px; margin-bottom: 24px;
+    border-radius: var(--radius); border: 1px solid rgba(239, 68, 68, 0.25);
+    background: linear-gradient(135deg, rgba(239, 68, 68, 0.08), rgba(239, 68, 68, 0.03));
+    align-items: flex-start; gap: 16px;
+  }
+  .offline-banner.visible { display: flex; }
+  .offline-icon { font-size: 32px; line-height: 1; flex-shrink: 0; margin-top: 2px; }
+  .offline-content { flex: 1; }
+  .offline-title { font-size: 16px; font-weight: 600; color: var(--danger); margin-bottom: 10px; }
+  .offline-steps p { font-size: 13px; color: var(--text-muted); margin: 6px 0; }
+  .offline-steps code {
+    display: block; font-size: 12px; padding: 8px 12px; margin: 6px 0;
+    background: rgba(0,0,0,0.3); border-radius: 6px; color: var(--accent-glow);
+    font-family: 'Consolas', 'Courier New', monospace; user-select: all; cursor: pointer;
+  }
+  .offline-hint { font-size: 12px !important; color: var(--text-dim) !important; margin-top: 10px !important; }
+  .offline-hint strong { color: var(--text-muted); }
+
+  .app-dimmed .beverages-grid,
+  .app-dimmed .controls-row,
+  .app-dimmed .machine-bar { opacity: 0.3; pointer-events: none; }
+
+  /* ── Mobile ─────────────────────────────────────────── */
+  @media (max-width: 640px) {
+    .header { flex-direction: column; gap: 16px; align-items: flex-start; }
+    .beverages-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+    .bev-card { padding: 16px 10px 14px; }
+    .controls-row { flex-direction: column; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-left">
+      <div class="logo">&#9749;</div>
+      <div class="brand">
+        <h1>Barista</h1>
+        <p>Dinamica Plus Control</p>
+      </div>
+    </div>
+    <div class="status-badge" id="statusBadge">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">Connecting...</span>
+    </div>
+  </header>
+
+  <!-- Server Offline Banner -->
+  <div class="offline-banner" id="offlineBanner">
+    <div class="offline-icon">&#128268;</div>
+    <div class="offline-content">
+      <div class="offline-title">Server is not running</div>
+      <div class="offline-steps">
+        <p>Start it with:</p>
+        <code>barista start --address YOUR_MACHINE_ADDRESS</code>
+        <p class="offline-hint">Run <strong>barista scan</strong> to find your machine first</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Machine Status Bar -->
+  <div class="machine-bar" id="machineBar">
+    <div class="stat-card">
+      <div class="stat-label">State</div>
+      <div class="stat-value" id="statState">--</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Connection</div>
+      <div class="stat-value" id="statConnection">--</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Nozzle</div>
+      <div class="stat-value" id="statNozzle">--</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">Alarms</div>
+      <div class="stat-value good" id="statAlarms">None</div>
+    </div>
+  </div>
+
+  <!-- Beverages -->
+  <div class="section-title">Choose your <span>brew</span></div>
+  <div class="beverages-grid" id="beverageGrid"></div>
+
+  <!-- Controls -->
+  <div class="section-title">Machine <span>controls</span></div>
+  <div class="controls-row">
+    <button class="ctrl-btn primary" onclick="apiCall('/api/power', 'POST')">
+      <span class="icon">&#9889;</span> Power On
+    </button>
+    <button class="ctrl-btn" onclick="apiCall('/api/steam', 'POST')">
+      <span class="icon">&#9729;</span> Steam
+    </button>
+    <button class="ctrl-btn" onclick="apiCall('/api/hot-water', 'POST', {quantity_ml: 200})">
+      <span class="icon">&#128167;</span> Hot Water
+    </button>
+    <button class="ctrl-btn" id="connectBtn" onclick="reconnect()">
+      <span class="icon">&#128279;</span> <span id="connectBtnText">Connect</span>
+    </button>
+    <button class="ctrl-btn danger" id="stopBtn" onclick="stopBrew()" style="display:none">
+      <span class="icon">&#9724;</span> Stop Brew
+    </button>
+  </div>
+
+  <!-- Activity Log -->
+  <div class="log-section">
+    <div class="section-title">Activity <span>log</span></div>
+    <div class="log-list" id="logList"></div>
+  </div>
+
+</div>
+
+<!-- Brew Modal -->
+<div class="modal-overlay" id="brewModal">
+  <div class="modal">
+    <span class="modal-icon" id="modalIcon">&#9749;</span>
+    <h2 id="modalTitle">Brewing Espresso</h2>
+    <p id="modalDesc">Your drink is being prepared...</p>
+    <div class="brew-progress">
+      <div class="brew-progress-bar" id="progressBar"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="ctrl-btn danger" onclick="stopBrew(); closeModal();">
+        <span class="icon">&#9724;</span> Stop
+      </button>
+      <button class="ctrl-btn" onclick="closeModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast Container -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+  // ── Config ──────────────────────────────────────────────
+  const API = '';  // same origin
+  let currentBrew = null;
+  let pollTimer = null;
+  const logEntries = [];
+
+  // ── Beverage Catalog ────────────────────────────────────
+  const BEVERAGES = [
+    { name: 'espresso',    icon: '\u2615',     label: 'Espresso',        detail: '40ml',  verified: true },
+    { name: 'coffee',      icon: '\u2615',     label: 'Coffee',          detail: '120ml', verified: true },
+    { name: 'long_coffee', icon: '\u2615',     label: 'Long Coffee',     detail: '160ml', verified: true },
+    { name: 'espresso_2x', icon: '\u2615\u2615', label: 'Double Espresso', detail: '80ml',  verified: true },
+    { name: 'doppio_plus', icon: '\ud83d\udcaa', label: 'Doppio+',        detail: '120ml', verified: true },
+    { name: 'americano',   icon: '\ud83c\uddfa\ud83c\uddf8', label: 'Americano', detail: '150ml', verified: true },
+    { name: 'hot_water',   icon: '\ud83d\udca7', label: 'Hot Water',       detail: '250ml', verified: true },
+    { name: 'steam',       icon: '\u2601\ufe0f', label: 'Steam',           detail: '',      verified: true },
+  ];
+
+  const EXTRA_BEVERAGES = [
+    { name: 'cappuccino',       icon: '\u2615',     label: 'Cappuccino',        detail: 'Milk',  verified: false },
+    { name: 'latte_macchiato',  icon: '\ud83e\udd5b', label: 'Latte Macchiato', detail: 'Milk',  verified: false },
+    { name: 'flat_white',       icon: '\u2615',     label: 'Flat White',        detail: 'Milk',  verified: false },
+    { name: 'caffe_latte',      icon: '\ud83e\udd5b', label: 'Caff\u00e8 Latte', detail: 'Milk', verified: false },
+    { name: 'ristretto',        icon: '\u2615',     label: 'Ristretto',         detail: '25ml',  verified: false },
+    { name: 'cortado',          icon: '\u2615',     label: 'Cortado',           detail: 'Milk',  verified: false },
+  ];
+
+  // ── Render Beverages ────────────────────────────────────
+  function renderBeverages() {
+    const grid = document.getElementById('beverageGrid');
+    const all = [...BEVERAGES, ...EXTRA_BEVERAGES];
+    grid.innerHTML = all.map(b => `
+      <div class="bev-card" id="bev-${b.name}" onclick="brew('${b.name}', '${b.label}', '${b.icon}', this)">
+        ${b.verified ? '<span class="bev-badge">VERIFIED</span>' : ''}
+        <span class="bev-icon">${b.icon}</span>
+        <div class="bev-name">${b.label}</div>
+        <div class="bev-detail">${b.detail}</div>
+      </div>
+    `).join('');
+  }
+
+  // ── API Call ────────────────────────────────────────────
+  async function apiCall(endpoint, method = 'GET', body = null) {
+    try {
+      const opts = { method, headers: { 'Content-Type': 'application/json' } };
+      if (body) opts.body = JSON.stringify(body);
+      const res = await fetch(API + endpoint, opts);
+      const data = await res.json();
+
+      if (data.success === false || data.error) {
+        showToast(data.error || 'Command failed', 'error');
+      } else if (data.action) {
+        showToast(`${data.action} sent`, 'success');
+        addLog(`Sent: ${data.action}`, '\u2705');
+      }
+      return data;
+    } catch (e) {
+      showToast('Connection error', 'error');
+      return null;
+    }
+  }
+
+  // ── Brew ────────────────────────────────────────────────
+  async function brew(name, label, icon, el) {
+    // Ripple effect
+    const ripple = document.createElement('span');
+    ripple.className = 'ripple';
+    const rect = el.getBoundingClientRect();
+    ripple.style.width = ripple.style.height = Math.max(rect.width, rect.height) + 'px';
+    ripple.style.left = '50%'; ripple.style.top = '50%';
+    ripple.style.marginLeft = -Math.max(rect.width, rect.height) / 2 + 'px';
+    ripple.style.marginTop = -Math.max(rect.width, rect.height) / 2 + 'px';
+    el.appendChild(ripple);
+    setTimeout(() => ripple.remove(), 600);
+
+    currentBrew = name;
+    el.classList.add('brewing');
+    document.getElementById('stopBtn').style.display = 'flex';
+
+    // Show modal
+    document.getElementById('modalIcon').textContent = icon;
+    document.getElementById('modalTitle').textContent = `Brewing ${label}`;
+    document.getElementById('modalDesc').textContent = 'Your drink is being prepared...';
+    document.getElementById('brewModal').classList.add('active');
+    const bar = document.getElementById('progressBar');
+    bar.classList.remove('active');
+    void bar.offsetWidth; // reflow
+    bar.classList.add('active');
+
+    addLog(`Brewing: ${label}`, '\u2615');
+
+    const result = await apiCall('/api/brew', 'POST', { beverage: name });
+
+    if (!result || result.success === false) {
+      el.classList.remove('brewing');
+      currentBrew = null;
+      document.getElementById('stopBtn').style.display = 'none';
+      closeModal();
+    } else {
+      // Auto-close modal after ~12s
+      setTimeout(() => {
+        el.classList.remove('brewing');
+        currentBrew = null;
+        document.getElementById('stopBtn').style.display = 'none';
+        document.getElementById('modalDesc').textContent = 'Enjoy your drink!';
+        setTimeout(closeModal, 2000);
+      }, 12000);
+    }
+  }
+
+  async function stopBrew() {
+    if (currentBrew) {
+      await apiCall('/api/brew/stop', 'POST', { beverage: currentBrew });
+      addLog('Brew stopped', '\u26d4');
+      const el = document.getElementById('bev-' + currentBrew);
+      if (el) el.classList.remove('brewing');
+      currentBrew = null;
+      document.getElementById('stopBtn').style.display = 'none';
+    }
+  }
+
+  function closeModal() {
+    document.getElementById('brewModal').classList.remove('active');
+  }
+
+  // ── Reconnect ────────────────────────────────────────
+  async function reconnect() {
+    const btn = document.getElementById('connectBtn');
+    const txt = document.getElementById('connectBtnText');
+    btn.disabled = true;
+    txt.textContent = 'Connecting...';
+    btn.classList.add('primary');
+    addLog('Reconnecting to machine...', '\ud83d\udd04');
+    showToast('Connecting to machine...', 'info');
+
+    const data = await apiCall('/api/reconnect', 'POST');
+    btn.disabled = false;
+
+    if (data && data.connected) {
+      txt.textContent = 'Connected';
+      showToast('Connected to machine!', 'success');
+      addLog('Connected!', '\u2705');
+    } else {
+      txt.textContent = 'Retry';
+      showToast('Connection failed - wake the machine and try again', 'error');
+      addLog('Connection failed', '\u274c');
+    }
+    btn.classList.remove('primary');
+    await pollStatus();
+  }
+
+  function updateConnectBtn(connected) {
+    const btn = document.getElementById('connectBtn');
+    const txt = document.getElementById('connectBtnText');
+    if (connected) {
+      txt.textContent = 'Reconnect';
+      btn.classList.remove('primary');
+    } else {
+      txt.textContent = 'Connect';
+      btn.classList.add('primary');
+    }
+  }
+
+  // ── Status Polling ──────────────────────────────────────
+  async function pollStatus() {
+    const banner = document.getElementById('offlineBanner');
+    const app = document.querySelector('.app');
+    try {
+      const res = await fetch(API + '/api/status');
+      const data = await res.json();
+
+      // Server is reachable — hide offline banner
+      banner.classList.remove('visible');
+      app.classList.remove('app-dimmed');
+
+      const dot = document.getElementById('statusDot');
+      const txt = document.getElementById('statusText');
+
+      if (data.connected) {
+        if (data.is_ready) {
+          dot.className = 'status-dot ready';
+          txt.textContent = 'Ready';
+        } else {
+          dot.className = 'status-dot connected';
+          txt.textContent = data.state || 'Connected';
+        }
+      } else {
+        dot.className = 'status-dot error';
+        txt.textContent = 'Disconnected';
+      }
+
+      document.getElementById('statState').textContent = data.state || '--';
+      document.getElementById('statState').className = 'stat-value' + (data.is_ready ? ' good' : data.connected ? ' warn' : ' bad');
+
+      document.getElementById('statConnection').textContent = data.connected ? 'Online' : 'Offline';
+      document.getElementById('statConnection').className = 'stat-value' + (data.connected ? ' good' : ' bad');
+
+      const nozzle = data.nozzle || '--';
+      document.getElementById('statNozzle').textContent = nozzle.replace('_', ' ');
+
+      const alarms = data.alarms || [];
+      const alarmEl = document.getElementById('statAlarms');
+      alarmEl.textContent = alarms.length ? alarms.join(', ') : 'None';
+      alarmEl.className = 'stat-value' + (alarms.length ? ' bad' : ' good');
+
+      updateConnectBtn(data.connected);
+
+    } catch (e) {
+      // Server unreachable — show offline banner
+      banner.classList.add('visible');
+      app.classList.add('app-dimmed');
+      document.getElementById('statusDot').className = 'status-dot error';
+      document.getElementById('statusText').textContent = 'Server Offline';
+      document.getElementById('statState').textContent = 'OFFLINE';
+      document.getElementById('statState').className = 'stat-value bad';
+      document.getElementById('statConnection').textContent = 'Offline';
+      document.getElementById('statConnection').className = 'stat-value bad';
+      updateConnectBtn(false);
+    }
+  }
+
+  // ── Toast ───────────────────────────────────────────────
+  function showToast(msg, type = 'info') {
+    const container = document.getElementById('toastContainer');
+    const toast = document.createElement('div');
+    const icons = { success: '\u2705', error: '\u274c', info: '\u2615' };
+    toast.className = `toast ${type}`;
+    toast.innerHTML = `<span>${icons[type] || ''}</span> ${msg}`;
+    container.appendChild(toast);
+    setTimeout(() => { toast.classList.add('toast-exit'); setTimeout(() => toast.remove(), 300); }, 3000);
+  }
+
+  // ── Activity Log ────────────────────────────────────────
+  function addLog(msg, icon = '\u2022') {
+    const now = new Date();
+    const time = now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    logEntries.unshift({ time, msg, icon });
+    if (logEntries.length > 20) logEntries.pop();
+    renderLog();
+  }
+
+  function renderLog() {
+    const el = document.getElementById('logList');
+    el.innerHTML = logEntries.map(e => `
+      <div class="log-entry">
+        <span class="log-icon">${e.icon}</span>
+        <span class="log-time">${e.time}</span>
+        <span class="log-msg">${e.msg}</span>
+      </div>
+    `).join('');
+  }
+
+  // ── Init ────────────────────────────────────────────────
+  renderBeverages();
+  pollStatus();
+  addLog('UI loaded', '\ud83d\ude80');
+  pollTimer = setInterval(pollStatus, 4000);
+
+  // Close modal on backdrop click
+  document.getElementById('brewModal').addEventListener('click', (e) => {
+    if (e.target === document.getElementById('brewModal')) closeModal();
+  });
+
+  // Keyboard: Escape closes modal
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+</script>
+
+</body>
+</html>

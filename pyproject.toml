@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "barista-coffee"
+version = "0.1.0"
+description = "Control your De'Longhi coffee machine from your terminal, browser, or any automation."
+readme = "README.md"
+license = {text = "MIT"}
+authors = [{name = "Assaf Akiva"}]
+requires-python = ">=3.11"
+keywords = ["delonghi", "coffee", "bluetooth", "ble", "iot", "home-automation", "ecam", "dinamica"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Home Automation",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+    "bleak>=0.21.0",
+    "aiohttp>=3.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+    "pytest-aiohttp>=1.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/assafakiva/barista"
+Repository = "https://github.com/assafakiva/barista"
+Issues = "https://github.com/assafakiva/barista/issues"
+Documentation = "https://github.com/assafakiva/barista#readme"
+
+[project.scripts]
+barista = "barista.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["barista*"]
+
+[tool.setuptools.package-data]
+"barista.ui" = ["*.html", "*.css", "*.js"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

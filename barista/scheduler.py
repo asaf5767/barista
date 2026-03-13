@@ -1,0 +1,620 @@
+"""
+Barista Scheduler — Automated brew scheduling with persistence.
+
+Runs inside the aiohttp server process. Uses the existing BLE connection
+to wake the machine and brew drinks at a scheduled time.
+
+Architecture:
+  - Schedules persisted to auto_brew_schedules.json (next to this file)
+  - 30-second check loop: compares now >= trigger_time (drift-proof, restart-safe)
+  - Brew execution engine: power on → wait for ready → prep time → brew sequence
+"""
+
+import asyncio
+import json
+import logging
+import time
+import uuid
+from datetime import datetime, timedelta
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
+from typing import Optional, Callable, Any
+
+from aiohttp import web
+
+from barista.protocol import (
+    BeverageId,
+    MachineState,
+    Alarm,
+    DINAMICA_BEVERAGES,
+    cmd_power_on,
+    cmd_profile_select,
+    cmd_recipe_read,
+    cmd_brew_recipe,
+    cmd_monitor,
+    get_beverage_names,
+    recipe_to_dict,
+)
+
+# ── Logging ────────────────────────────────────────────────────────────────────
+
+logger = logging.getLogger("delonghi.scheduler")
+
+_brew_logger: Optional[logging.Logger] = None
+
+
+def _get_brew_logger() -> logging.Logger:
+    """Get or create a dedicated logger for brew execution (file + console)."""
+    global _brew_logger
+    if _brew_logger:
+        return _brew_logger
+
+    _brew_logger = logging.getLogger("delonghi.scheduler.brew")
+    _brew_logger.setLevel(logging.DEBUG)
+
+    # File handler — rotates at 1MB, keeps 3 backups
+    log_path = Path(__file__).parent / "auto_brew.log"
+    fh = RotatingFileHandler(str(log_path), maxBytes=1_000_000, backupCount=3)
+    fh.setLevel(logging.DEBUG)
+    fh.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
+    _brew_logger.addHandler(fh)
+
+    # Console handler
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.INFO)
+    ch.setFormatter(logging.Formatter("%(asctime)s [BREW] %(message)s"))
+    _brew_logger.addHandler(ch)
+
+    return _brew_logger
+
+
+# ── Persistence ────────────────────────────────────────────────────────────────
+
+SCHEDULES_FILE = Path(__file__).parent / "auto_brew_schedules.json"
+
+# Critical alarms that should abort a brew
+CRITICAL_ALARMS = {
+    Alarm.EMPTY_WATER_TANK,
+    Alarm.WASTE_CONTAINER_FULL,
+    Alarm.BEANS_EMPTY,
+    Alarm.BEANS_EMPTY_2,
+    Alarm.MACHINE_TO_SERVICE,
+    Alarm.HEATER_PROBE_FAIL,
+    Alarm.INFUSER_MOTOR_FAIL,
+    Alarm.STEAMER_PROBE_FAIL,
+    Alarm.HYDRAULIC_PROBLEM,
+}
+
+
+def _load_schedules() -> list[dict]:
+    """Load schedules from disk."""
+    if SCHEDULES_FILE.exists():
+        try:
+            data = json.loads(SCHEDULES_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                return data
+        except (json.JSONDecodeError, OSError) as e:
+            logger.error(f"Failed to load schedules: {e}")
+    return []
+
+
+def _save_schedules(schedules: list[dict]) -> None:
+    """Persist schedules to disk."""
+    try:
+        SCHEDULES_FILE.write_text(
+            json.dumps(schedules, indent=2, default=str),
+            encoding="utf-8",
+        )
+    except OSError as e:
+        logger.error(f"Failed to save schedules: {e}")
+
+
+# ── Scheduler State ───────────────────────────────────────────────────────────
+
+class SchedulerState:
+    """Holds all scheduler runtime state. Passed around instead of globals."""
+
+    def __init__(self):
+        self.schedules: list[dict] = []
+        self.active_task: Optional[asyncio.Task] = None
+        self.active_schedule_id: Optional[str] = None
+        self.execution_status: dict = {}  # Live status for UI polling
+        self.machine = None  # Set by setup_scheduler
+        self.fetch_recipe_fn: Optional[Callable] = None  # Set by setup_scheduler
+        self.fetch_all_recipes_fn: Optional[Callable] = None
+        self._check_loop_task: Optional[asyncio.Task] = None
+
+    def load(self):
+        self.schedules = _load_schedules()
+        logger.info(f"Loaded {len(self.schedules)} schedule(s)")
+
+    def save(self):
+        _save_schedules(self.schedules)
+
+    def find_schedule(self, schedule_id: str) -> Optional[dict]:
+        for s in self.schedules:
+            if s.get("id") == schedule_id:
+                return s
+        return None
+
+
+state = SchedulerState()
+
+
+# ── Check Loop ─────────────────────────────────────────────────────────────────
+
+async def _scheduler_check_loop():
+    """Runs every 30 seconds. Checks if any schedule should fire."""
+    blog = _get_brew_logger()
+    while True:
+        try:
+            now = datetime.now()
+            for schedule in state.schedules:
+                if schedule.get("status") in ("running", "completed", "cancelled"):
+                    continue
+                if not schedule.get("enabled", True):
+                    continue
+
+                trigger_dt = _parse_trigger(schedule.get("trigger", {}))
+                if trigger_dt and now >= trigger_dt:
+                    # Time to fire!
+                    blog.info(f"Schedule '{schedule['id']}' triggered at {now}")
+                    schedule["status"] = "running"
+                    state.save()
+                    state.active_schedule_id = schedule["id"]
+                    state.active_task = asyncio.create_task(
+                        _execute_brew_sequence(schedule)
+                    )
+
+        except Exception as e:
+            logger.error(f"Scheduler check error: {e}")
+
+        await asyncio.sleep(30)
+
+
+def _parse_trigger(trigger: dict) -> Optional[datetime]:
+    """Parse trigger dict to a datetime."""
+    date_str = trigger.get("date")
+    time_str = trigger.get("time")
+    if not date_str or not time_str:
+        return None
+    try:
+        return datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M")
+    except ValueError:
+        return None
+
+
+# ── Brew Execution Engine ──────────────────────────────────────────────────────
+
+async def _execute_brew_sequence(schedule: dict):
+    """Execute a full brew sequence: power on → prep → brew drinks."""
+    blog = _get_brew_logger()
+    machine = state.machine
+    drinks = schedule.get("drinks", [])
+    timing = schedule.get("timing", {})
+    profile = schedule.get("profile", 1)
+    prep_minutes = timing.get("prep_minutes", 5)
+    between_minutes = timing.get("between_drinks_minutes", 3.5)
+    dry_run = schedule.get("dry_run", False)
+
+    def update_status(step: str, detail: str = "", progress: float = 0):
+        state.execution_status = {
+            "schedule_id": schedule["id"],
+            "step": step,
+            "detail": detail,
+            "progress": progress,
+            "timestamp": datetime.now().isoformat(),
+        }
+        blog.info(f"[{step}] {detail}")
+
+    try:
+        # ── Step 1: Power on ──────────────────────────────────────────────
+        update_status("powering_on", "Sending power-on command", 0.05)
+
+        if not dry_run:
+            # Retry BLE connection up to 3 times
+            connected = machine.connected
+            if not connected:
+                for attempt in range(1, 4):
+                    update_status("connecting", f"BLE connect attempt {attempt}/3", 0.02)
+                    blog.info(f"BLE not connected, attempt {attempt}/3...")
+                    connected = await machine.connect(machine._address)
+                    if connected:
+                        break
+                    await asyncio.sleep(10)
+
+                if not connected:
+                    update_status("error", "Failed to connect to machine after 3 attempts")
+                    schedule["status"] = "error"
+                    schedule["error"] = "BLE connection failed"
+                    state.save()
+                    return
+
+            ok = await machine.send(cmd_power_on())
+            if not ok:
+                update_status("error", "Failed to send power-on command")
+                schedule["status"] = "error"
+                schedule["error"] = "Power-on send failed"
+                state.save()
+                return
+        else:
+            blog.info("[DRY RUN] Would send power-on command")
+
+        # ── Step 2: Wait for READY ────────────────────────────────────────
+        update_status("heating", "Waiting for machine to reach READY state", 0.10)
+
+        if not dry_run:
+            ready = await _wait_for_ready(machine, timeout=180, blog=blog)
+            if not ready:
+                update_status("error", "Machine did not reach READY state within 3 minutes")
+                schedule["status"] = "error"
+                schedule["error"] = "Machine not ready (timeout)"
+                state.save()
+                return
+
+            # Check for critical alarms
+            alarm_check = _check_alarms(machine)
+            if alarm_check:
+                update_status("error", f"Critical alarm: {alarm_check}")
+                schedule["status"] = "error"
+                schedule["error"] = f"Alarm: {alarm_check}"
+                state.save()
+                return
+        else:
+            blog.info("[DRY RUN] Would wait for READY state")
+
+        # ── Step 3: Prep time ─────────────────────────────────────────────
+        prep_seconds = int(prep_minutes * 60)
+        update_status("prepping", f"Prep time: {prep_minutes} min — prepare the milk frother!", 0.20)
+
+        for elapsed in range(0, prep_seconds, 10):
+            remaining = prep_seconds - elapsed
+            mins = remaining // 60
+            secs = remaining % 60
+            progress = 0.20 + (elapsed / prep_seconds) * 0.15
+            update_status("prepping", f"Prep time remaining: {mins}m {secs}s", progress)
+            await asyncio.sleep(min(10, remaining))
+
+        # ── Step 4: Select profile ────────────────────────────────────────
+        update_status("profile", f"Selecting profile {profile}", 0.35)
+
+        if not dry_run:
+            await machine.send(cmd_profile_select(profile))
+            await asyncio.sleep(1)
+
+            # Fetch recipes for this profile
+            if state.fetch_all_recipes_fn:
+                await state.fetch_all_recipes_fn(profile)
+        else:
+            blog.info(f"[DRY RUN] Would select profile {profile}")
+
+        # ── Step 5: Brew each drink ───────────────────────────────────────
+        total_drinks = len(drinks)
+        for i, drink in enumerate(drinks):
+            drink_num = i + 1
+            bev_name = drink.get("beverage", "coffee")
+            bev_label = drink.get("label", bev_name)
+            drink_progress_base = 0.40 + (i / total_drinks) * 0.55
+
+            update_status(
+                "brewing",
+                f"Brewing {bev_label} ({drink_num}/{total_drinks})",
+                drink_progress_base,
+            )
+
+            if not dry_run:
+                # Resolve beverage ID
+                names = get_beverage_names()
+                if bev_name not in names:
+                    blog.warning(f"Unknown beverage: {bev_name}, skipping")
+                    continue
+                bev_id = BeverageId(names[bev_name])
+
+                # Fetch recipe from machine
+                recipe = None
+                if state.fetch_recipe_fn:
+                    recipe = await state.fetch_recipe_fn(bev_id, profile)
+
+                if recipe:
+                    cmd = cmd_brew_recipe(bev_id, recipe)
+                    ok = await machine.send(cmd)
+                    if ok:
+                        blog.info(f"Brew command sent for {bev_label}")
+                    else:
+                        blog.error(f"Failed to send brew command for {bev_label}")
+                        continue
+                else:
+                    blog.warning(f"No recipe found for {bev_label}, skipping")
+                    continue
+
+                # Wait for brew to complete (machine returns to READY)
+                update_status(
+                    "brewing",
+                    f"Waiting for {bev_label} to finish...",
+                    drink_progress_base + 0.10,
+                )
+                brew_done = await _wait_for_ready(machine, timeout=300, blog=blog)
+                if not brew_done:
+                    blog.warning(f"{bev_label} didn't complete within 5 min timeout")
+
+                # Check alarms after brew
+                alarm_check = _check_alarms(machine)
+                if alarm_check:
+                    blog.error(f"Alarm after brewing {bev_label}: {alarm_check}")
+                    update_status("error", f"Alarm during brew: {alarm_check}")
+                    # Continue to next drink — don't abort entire sequence
+            else:
+                blog.info(f"[DRY RUN] Would brew {bev_label}")
+
+            # Wait between drinks (skip after last)
+            if drink_num < total_drinks:
+                wait_seconds = int(between_minutes * 60)
+                update_status(
+                    "waiting",
+                    f"Waiting {between_minutes} min before next drink...",
+                    drink_progress_base + 0.20,
+                )
+                for elapsed in range(0, wait_seconds, 10):
+                    remaining = wait_seconds - elapsed
+                    mins = remaining // 60
+                    secs = remaining % 60
+                    update_status(
+                        "waiting",
+                        f"Next drink in {mins}m {secs}s",
+                        drink_progress_base + 0.20 + (elapsed / wait_seconds) * 0.05,
+                    )
+                    await asyncio.sleep(min(10, remaining))
+
+        # ── Done ──────────────────────────────────────────────────────────
+        update_status("completed", "All drinks brewed successfully! ☕", 1.0)
+        schedule["status"] = "completed"
+        schedule["completed_at"] = datetime.now().isoformat()
+        state.save()
+        blog.info("Brew sequence completed successfully")
+
+    except asyncio.CancelledError:
+        blog.warning("Brew sequence cancelled")
+        schedule["status"] = "cancelled"
+        state.save()
+        raise
+    except Exception as e:
+        blog.error(f"Brew sequence error: {e}", exc_info=True)
+        schedule["status"] = "error"
+        schedule["error"] = str(e)
+        state.save()
+    finally:
+        state.active_schedule_id = None
+        state.active_task = None
+
+
+async def _wait_for_ready(machine, timeout: int = 180, blog=None) -> bool:
+    """Poll machine status until READY state, with timeout."""
+    if blog is None:
+        blog = _get_brew_logger()
+
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            status = await machine.request_status()
+            if status:
+                machine_state = status.get("state", "")
+                is_ready = status.get("is_ready", False)
+                blog.debug(f"Machine state: {machine_state}, ready: {is_ready}")
+                if is_ready:
+                    return True
+        except Exception as e:
+            blog.warning(f"Status poll error: {e}")
+
+        await asyncio.sleep(5)
+
+    return False
+
+
+def _check_alarms(machine) -> Optional[str]:
+    """Check last known status for critical alarms. Returns alarm name or None."""
+    status = machine.get_last_status()
+    if not status:
+        return None
+
+    alarms = status.get("alarms", [])
+    for alarm_name in alarms:
+        try:
+            alarm = Alarm[alarm_name]
+            if alarm in CRITICAL_ALARMS:
+                return alarm_name
+        except (KeyError, ValueError):
+            pass
+
+    return None
+
+
+# ── HTTP Handlers ──────────────────────────────────────────────────────────────
+
+def _json_response(data: dict, status: int = 200) -> web.Response:
+    return web.Response(
+        text=json.dumps(data, indent=2, default=str),
+        content_type="application/json",
+        status=status,
+        headers={"Access-Control-Allow-Origin": "*"},
+    )
+
+
+async def handle_schedule_list(request: web.Request) -> web.Response:
+    """GET /api/schedule — List all schedules."""
+    schedules = []
+    now = datetime.now()
+
+    for s in state.schedules:
+        entry = {**s}
+        # Add countdown for pending schedules
+        trigger_dt = _parse_trigger(s.get("trigger", {}))
+        if trigger_dt and s.get("status") not in ("completed", "cancelled", "error"):
+            delta = trigger_dt - now
+            entry["countdown_seconds"] = max(0, int(delta.total_seconds()))
+        schedules.append(entry)
+
+    return _json_response({"schedules": schedules})
+
+
+async def handle_schedule_create(request: web.Request) -> web.Response:
+    """POST /api/schedule — Create a new scheduled brew."""
+    try:
+        body = await request.json()
+    except Exception:
+        return _json_response({"error": "Invalid JSON body"}, 400)
+
+    # Validate required fields
+    trigger = body.get("trigger", {})
+    drinks = body.get("drinks", [])
+
+    if not trigger.get("date") or not trigger.get("time"):
+        return _json_response({"error": "trigger.date and trigger.time are required"}, 400)
+
+    if not drinks:
+        return _json_response({"error": "At least one drink is required"}, 400)
+
+    # Validate trigger datetime
+    trigger_dt = _parse_trigger(trigger)
+    if not trigger_dt:
+        return _json_response({"error": "Invalid trigger date/time format (use YYYY-MM-DD and HH:MM)"}, 400)
+
+    # Create schedule
+    schedule_id = f"brew_{trigger['date'].replace('-', '')}_{trigger['time'].replace(':', '')}"
+    # Ensure unique ID
+    existing_ids = {s["id"] for s in state.schedules}
+    if schedule_id in existing_ids:
+        schedule_id += f"_{uuid.uuid4().hex[:4]}"
+
+    schedule = {
+        "id": schedule_id,
+        "enabled": True,
+        "status": "pending",
+        "trigger": trigger,
+        "drinks": drinks,
+        "timing": body.get("timing", {"prep_minutes": 5, "between_drinks_minutes": 3.5}),
+        "profile": body.get("profile", 1),
+        "created_at": datetime.now().isoformat(),
+    }
+
+    state.schedules.append(schedule)
+    state.save()
+
+    logger.info(f"Created schedule '{schedule_id}' for {trigger['date']} {trigger['time']}")
+
+    return _json_response({
+        "success": True,
+        "schedule": schedule,
+    }, 201)
+
+
+async def handle_schedule_delete(request: web.Request) -> web.Response:
+    """DELETE /api/schedule/{id} — Delete/cancel a schedule."""
+    schedule_id = request.match_info.get("id")
+    schedule = state.find_schedule(schedule_id)
+
+    if not schedule:
+        return _json_response({"error": f"Schedule '{schedule_id}' not found"}, 404)
+
+    # If it's currently running, cancel the task
+    if state.active_schedule_id == schedule_id and state.active_task:
+        state.active_task.cancel()
+        try:
+            await state.active_task
+        except asyncio.CancelledError:
+            pass
+
+    state.schedules = [s for s in state.schedules if s["id"] != schedule_id]
+    state.save()
+
+    logger.info(f"Deleted schedule '{schedule_id}'")
+    return _json_response({"success": True, "deleted": schedule_id})
+
+
+async def handle_schedule_test(request: web.Request) -> web.Response:
+    """POST /api/schedule/{id}/test — Dry-run a schedule."""
+    schedule_id = request.match_info.get("id")
+    schedule = state.find_schedule(schedule_id)
+
+    if not schedule:
+        return _json_response({"error": f"Schedule '{schedule_id}' not found"}, 404)
+
+    if state.active_task and not state.active_task.done():
+        return _json_response({"error": "A brew is already in progress"}, 409)
+
+    # Create a dry-run copy
+    test_schedule = {**schedule, "dry_run": True, "status": "running"}
+    state.active_schedule_id = schedule_id
+    state.active_task = asyncio.create_task(_execute_brew_sequence(test_schedule))
+
+    return _json_response({"success": True, "message": "Dry-run started", "schedule_id": schedule_id})
+
+
+async def handle_schedule_active(request: web.Request) -> web.Response:
+    """GET /api/schedule/active — Get status of currently executing brew."""
+    if not state.execution_status:
+        return _json_response({
+            "active": False,
+            "message": "No brew in progress",
+        })
+
+    return _json_response({
+        "active": state.active_task is not None and not state.active_task.done(),
+        **state.execution_status,
+    })
+
+
+async def handle_schedule_cancel_active(request: web.Request) -> web.Response:
+    """POST /api/schedule/active/cancel — Cancel the currently running brew."""
+    if not state.active_task or state.active_task.done():
+        return _json_response({"error": "No active brew to cancel"}, 404)
+
+    state.active_task.cancel()
+    return _json_response({"success": True, "message": "Cancelling active brew..."})
+
+
+# ── Setup ──────────────────────────────────────────────────────────────────────
+
+def setup_scheduler(app: web.Application, machine, fetch_recipe_fn, fetch_all_recipes_fn):
+    """Initialize the scheduler and register routes.
+
+    Args:
+        app: The aiohttp application
+        machine: The DelonghiBLE instance
+        fetch_recipe_fn: async function(BeverageId, profile) -> recipe
+        fetch_all_recipes_fn: async function(profile) -> None
+    """
+    state.machine = machine
+    state.fetch_recipe_fn = fetch_recipe_fn
+    state.fetch_all_recipes_fn = fetch_all_recipes_fn
+    state.load()
+
+    # Register routes
+    app.router.add_get("/api/schedule", handle_schedule_list)
+    app.router.add_post("/api/schedule", handle_schedule_create)
+    app.router.add_delete("/api/schedule/{id}", handle_schedule_delete)
+    app.router.add_post("/api/schedule/{id}/test", handle_schedule_test)
+    app.router.add_get("/api/schedule/active", handle_schedule_active)
+    app.router.add_post("/api/schedule/active/cancel", handle_schedule_cancel_active)
+
+    # Start the check loop on app startup
+    async def start_scheduler(app):
+        state._check_loop_task = asyncio.create_task(_scheduler_check_loop())
+        logger.info("Scheduler check loop started (30s interval)")
+
+    async def stop_scheduler(app):
+        if state._check_loop_task:
+            state._check_loop_task.cancel()
+            try:
+                await state._check_loop_task
+            except asyncio.CancelledError:
+                pass
+        if state.active_task:
+            state.active_task.cancel()
+            try:
+                await state.active_task
+            except asyncio.CancelledError:
+                pass
+        logger.info("Scheduler stopped")
+
+    app.on_startup.append(start_scheduler)
+    app.on_cleanup.append(stop_scheduler)

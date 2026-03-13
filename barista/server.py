@@ -43,6 +43,7 @@ from barista.protocol import (
     recipe_from_dict,
 )
 from barista.ble import DelonghiBLE
+from barista.scheduler import setup_scheduler
 
 logging.basicConfig(
     level=logging.INFO,
@@ -475,6 +476,9 @@ def create_app() -> web.Application:
 
     # CORS
     app.router.add_route("OPTIONS", "/{path:.*}", handle_cors)
+
+    # Scheduler
+    setup_scheduler(app, machine, fetch_recipe, fetch_all_recipes)
 
     return app
 

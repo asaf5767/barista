@@ -290,6 +290,298 @@
   .app-dimmed .controls-row,
   .app-dimmed .machine-bar { opacity: 0.3; pointer-events: none; }
 
+  /* ── Schedule Section ────────────────────────────────── */
+  .schedule-section { margin-bottom: 40px; }
+
+  .schedule-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 16px;
+  }
+
+  .schedule-cards { display: flex; flex-direction: column; gap: 16px; }
+
+  .schedule-empty {
+    padding: 32px; text-align: center;
+    border-radius: var(--radius); border: 1px dashed var(--border);
+    color: var(--text-dim); font-size: 14px;
+  }
+
+  /* ── Hero Countdown Card ───────────────────────────── */
+  .schedule-card {
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 28px; position: relative;
+    transition: all 0.3s; overflow: hidden;
+  }
+  .schedule-card::before {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse 120% 80% at 50% 0%, rgba(217, 119, 6, 0.06) 0%, transparent 60%);
+  }
+  .schedule-card:hover { border-color: rgba(217, 119, 6, 0.25); }
+  .schedule-card.running {
+    border-color: var(--accent);
+    box-shadow: 0 0 40px rgba(217, 119, 6, 0.15), inset 0 0 60px rgba(217, 119, 6, 0.03);
+  }
+  .schedule-card.running::before {
+    background: radial-gradient(ellipse 120% 80% at 50% 0%, rgba(217, 119, 6, 0.12) 0%, transparent 60%);
+  }
+  .schedule-card.completed { opacity: 0.5; }
+  .schedule-card.error { border-color: rgba(239, 68, 68, 0.3); }
+
+  .schedule-card-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 8px; position: relative; z-index: 1;
+  }
+  .schedule-card-title {
+    font-weight: 600; font-size: 15px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .schedule-card-actions { display: flex; gap: 6px; }
+  .schedule-card-actions button {
+    background: none; border: 1px solid var(--border);
+    color: var(--text-muted); border-radius: 6px;
+    padding: 4px 10px; font-size: 11px; cursor: pointer;
+    font-family: inherit; transition: all 0.2s;
+  }
+  .schedule-card-actions button:hover { border-color: var(--accent); color: var(--text); }
+  .schedule-card-actions button.del:hover { border-color: var(--danger); color: var(--danger); }
+
+  /* ── Big Countdown Display ──────────────────────────── */
+  .countdown-hero {
+    text-align: center; padding: 24px 0 20px;
+    position: relative; z-index: 1;
+  }
+  .countdown-label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 2px;
+    color: var(--text-dim); margin-bottom: 12px; font-weight: 600;
+  }
+  .countdown-digits {
+    display: flex; align-items: center; justify-content: center; gap: 4px;
+    font-family: 'Inter', -apple-system, sans-serif;
+    font-variant-numeric: tabular-nums;
+  }
+  .countdown-segment {
+    display: flex; flex-direction: column; align-items: center;
+  }
+  .countdown-number {
+    font-size: 56px; font-weight: 700; line-height: 1;
+    color: var(--text);
+    text-shadow: 0 0 30px rgba(217, 119, 6, 0.2);
+    min-width: 80px;
+  }
+  .countdown-number.accent { color: var(--accent-glow); }
+  .countdown-unit {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px;
+    color: var(--text-dim); margin-top: 6px; font-weight: 600;
+  }
+  .countdown-separator {
+    font-size: 42px; font-weight: 300; color: var(--text-dim);
+    margin: 0 2px; padding-bottom: 18px;
+    animation: blink-colon 1s step-end infinite;
+  }
+  @keyframes blink-colon {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.2; }
+  }
+
+  .countdown-drinks-preview {
+    display: flex; align-items: center; justify-content: center; gap: 12px;
+    margin-top: 16px; font-size: 14px; color: var(--text-muted);
+  }
+  .countdown-drinks-preview .cdp-drink {
+    display: flex; align-items: center; gap: 4px;
+    padding: 6px 14px; border-radius: 100px;
+    background: var(--accent-soft); font-weight: 500;
+  }
+  .countdown-drinks-preview .cdp-arrow { color: var(--text-dim); font-size: 12px; }
+
+  /* ── Running state: step indicator ─────────────────── */
+  .running-status {
+    text-align: center; padding: 20px 0; position: relative; z-index: 1;
+  }
+  .running-step-icon {
+    font-size: 48px; margin-bottom: 12px; display: block;
+    animation: running-bounce 1.5s ease-in-out infinite;
+  }
+  @keyframes running-bounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-6px); }
+  }
+  .running-step-text {
+    font-size: 18px; font-weight: 600; color: var(--text);
+    margin-bottom: 4px;
+  }
+  .running-step-detail {
+    font-size: 13px; color: var(--text-muted);
+  }
+
+  /* ── Timeline (smaller, below countdown) ───────────── */
+  .schedule-timeline {
+    display: flex; align-items: center; gap: 0;
+    padding: 16px 0 4px; overflow-x: auto;
+    position: relative; z-index: 1;
+  }
+  .timeline-node {
+    display: flex; flex-direction: column; align-items: center;
+    gap: 4px; min-width: 80px; text-align: center; position: relative;
+  }
+  .timeline-node .time { font-size: 11px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+  .timeline-node .icon { font-size: 22px; transition: all 0.3s; }
+  .timeline-node .label { font-size: 11px; color: var(--text-muted); }
+  .timeline-node.past .icon { opacity: 0.4; }
+  .timeline-node.active .icon { font-size: 28px; animation: pulse 1.5s infinite; filter: drop-shadow(0 0 8px rgba(217, 119, 6, 0.5)); }
+  .timeline-connector {
+    flex: 1; min-width: 24px; height: 2px;
+    background: var(--border); position: relative;
+    margin: 0 4px; margin-top: -8px;
+  }
+  .timeline-connector.past { background: var(--accent); }
+  .timeline-connector .duration {
+    position: absolute; top: -16px; left: 50%; transform: translateX(-50%);
+    font-size: 10px; color: var(--text-dim); white-space: nowrap;
+  }
+
+  .schedule-status-badge {
+    font-size: 10px; padding: 2px 8px; border-radius: 100px;
+    font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+  }
+  .schedule-status-badge.pending { background: rgba(217, 119, 6, 0.15); color: var(--accent-glow); }
+  .schedule-status-badge.running { background: rgba(34, 197, 94, 0.15); color: var(--success); animation: pulse 2s infinite; }
+  .schedule-status-badge.completed { background: rgba(168, 162, 158, 0.1); color: var(--text-dim); }
+  .schedule-status-badge.error { background: rgba(239, 68, 68, 0.15); color: var(--danger); }
+
+  .schedule-progress {
+    height: 4px; background: var(--bg-deep); border-radius: 2px;
+    overflow: hidden; margin-top: 16px; position: relative; z-index: 1;
+  }
+  .schedule-progress-bar {
+    height: 100%; border-radius: 2px; transition: width 1s ease;
+    background: linear-gradient(90deg, var(--accent), var(--accent-glow), var(--accent));
+    background-size: 200% 100%;
+    animation: shimmer 2s linear infinite;
+  }
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+
+  /* ── Schedule Wizard Modal ───────────────────────────── */
+  .wizard-overlay {
+    display: none; position: fixed; inset: 0; z-index: 600;
+    background: rgba(0,0,0,0.75); backdrop-filter: blur(10px);
+    align-items: center; justify-content: center;
+  }
+  .wizard-overlay.active { display: flex; }
+
+  .wizard {
+    background: var(--bg-surface); border: 1px solid var(--border);
+    border-radius: 20px; padding: 32px; max-width: 560px; width: 94%;
+    max-height: 85vh; overflow-y: auto;
+    animation: modal-in 0.3s ease-out;
+  }
+  .wizard-title {
+    font-family: 'Playfair Display', serif; font-size: 22px; font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .wizard-subtitle { color: var(--text-muted); font-size: 13px; margin-bottom: 24px; }
+
+  .wizard-step { display: none; }
+  .wizard-step.active { display: block; }
+
+  .wizard-step-label {
+    font-size: 11px; color: var(--accent-glow); text-transform: uppercase;
+    letter-spacing: 1.5px; font-weight: 600; margin-bottom: 12px;
+  }
+
+  /* Date/Time picker chips */
+  .chip-group { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+  .chip {
+    padding: 8px 16px; border-radius: 100px;
+    background: var(--bg-card); border: 1px solid var(--border);
+    color: var(--text-muted); font-size: 13px; font-weight: 500;
+    cursor: pointer; transition: all 0.2s; font-family: inherit;
+    user-select: none;
+  }
+  .chip:hover { border-color: rgba(217, 119, 6, 0.4); color: var(--text); }
+  .chip.selected { background: var(--accent); border-color: var(--accent); color: white; }
+
+  .chip-custom-input {
+    padding: 8px 14px; border-radius: 100px;
+    background: var(--bg-card); border: 1px solid var(--border);
+    color: var(--text); font-size: 13px; font-family: inherit;
+    width: 130px; outline: none; transition: border-color 0.2s;
+  }
+  .chip-custom-input:focus { border-color: var(--accent); }
+
+  /* Drink selector in wizard */
+  .drink-selector-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+    gap: 8px; margin-bottom: 16px;
+  }
+  .drink-selector-item {
+    padding: 12px 8px; border-radius: var(--radius-sm);
+    background: var(--bg-card); border: 1px solid var(--border);
+    text-align: center; cursor: pointer; transition: all 0.2s;
+    user-select: none;
+  }
+  .drink-selector-item:hover { border-color: rgba(217, 119, 6, 0.3); }
+  .drink-selector-item .ds-icon { font-size: 20px; display: block; margin-bottom: 4px; }
+  .drink-selector-item .ds-name { font-size: 11px; font-weight: 500; }
+
+  .selected-drinks { margin-top: 8px; }
+  .selected-drink {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px; border-radius: var(--radius-sm);
+    background: var(--bg-card); border: 1px solid var(--border);
+    margin-bottom: 6px; font-size: 13px;
+  }
+  .selected-drink .sd-left { display: flex; align-items: center; gap: 8px; }
+  .selected-drink .sd-num { color: var(--text-dim); font-size: 11px; font-weight: 600; }
+  .selected-drink .sd-remove {
+    background: none; border: none; color: var(--text-dim);
+    cursor: pointer; font-size: 16px; padding: 2px 6px;
+    border-radius: 4px; transition: all 0.2s;
+  }
+  .selected-drink .sd-remove:hover { color: var(--danger); background: rgba(239, 68, 68, 0.1); }
+
+  /* Slider */
+  .slider-row {
+    display: flex; align-items: center; gap: 12px;
+    margin-bottom: 16px;
+  }
+  .slider-label { font-size: 13px; color: var(--text-muted); min-width: 120px; }
+  .slider-value { font-size: 14px; font-weight: 600; color: var(--accent-glow); min-width: 50px; text-align: right; }
+  input[type="range"] {
+    flex: 1; -webkit-appearance: none; height: 4px;
+    background: var(--bg-card); border-radius: 2px; outline: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 18px; height: 18px;
+    border-radius: 50%; background: var(--accent);
+    cursor: pointer; box-shadow: 0 2px 8px rgba(217, 119, 6, 0.3);
+  }
+
+  /* Confirm timeline */
+  .confirm-timeline {
+    background: var(--bg-card); border-radius: var(--radius);
+    padding: 20px; margin: 16px 0;
+    border: 1px solid var(--border);
+  }
+  .confirm-timeline .ct-line {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 0; font-size: 13px;
+  }
+  .confirm-timeline .ct-time { color: var(--accent-glow); font-weight: 600; min-width: 70px; font-variant-numeric: tabular-nums; }
+  .confirm-timeline .ct-icon { font-size: 16px; }
+  .confirm-timeline .ct-text { color: var(--text-muted); }
+  .confirm-timeline .ct-wait {
+    padding: 4px 0 4px 80px; font-size: 11px;
+    color: var(--text-dim); font-style: italic;
+  }
+
+  /* Wizard navigation */
+  .wizard-nav { display: flex; justify-content: space-between; margin-top: 24px; gap: 10px; }
+  .wizard-nav .ctrl-btn { min-width: 100px; justify-content: center; }
+
   /* ── Mobile ─────────────────────────────────────────── */
   @media (max-width: 640px) {
     .header { flex-direction: column; gap: 16px; align-items: flex-start; }
@@ -393,6 +685,21 @@
     <div class="log-list" id="logList"></div>
   </div>
 
+  <!-- Schedule Section -->
+  <div class="schedule-section">
+    <div class="schedule-header">
+      <div class="section-title">Scheduled <span>brews</span></div>
+      <button class="ctrl-btn primary" onclick="openScheduleWizard()">
+        <span class="icon">&#128197;</span> Schedule a brew
+      </button>
+    </div>
+    <div class="schedule-cards" id="scheduleCards">
+      <div class="schedule-empty" id="scheduleEmpty">
+        No scheduled brews — click "Schedule a brew" to set one up
+      </div>
+    </div>
+  </div>
+
 </div>
 
 <!-- Brew Modal -->
@@ -415,6 +722,82 @@
 
 <!-- Toast Container -->
 <div class="toast-container" id="toastContainer"></div>
+
+<!-- Schedule Wizard Modal -->
+<div class="wizard-overlay" id="wizardOverlay">
+  <div class="wizard">
+    <div class="wizard-title">Schedule a <span style="color:var(--accent)">brew</span></div>
+    <div class="wizard-subtitle">Set up an automated coffee sequence</div>
+
+    <!-- Step 1: Date & Time -->
+    <div class="wizard-step active" id="wizStep1">
+      <div class="wizard-step-label">Step 1 — When</div>
+
+      <p style="color:var(--text-muted);font-size:13px;margin-bottom:10px;">Pick a date:</p>
+      <div class="chip-group" id="dateChips"></div>
+
+      <p style="color:var(--text-muted);font-size:13px;margin-bottom:10px;margin-top:16px;">Pick a time:</p>
+      <div class="chip-group" id="timeChips"></div>
+
+      <div class="wizard-nav">
+        <button class="ctrl-btn" onclick="closeWizard()">Cancel</button>
+        <button class="ctrl-btn primary" onclick="wizardNext(2)" id="wizNext1">Next →</button>
+      </div>
+    </div>
+
+    <!-- Step 2: Drinks -->
+    <div class="wizard-step" id="wizStep2">
+      <div class="wizard-step-label">Step 2 — Drinks</div>
+      <p style="color:var(--text-muted);font-size:13px;margin-bottom:12px;">Tap a drink to add it to the sequence:</p>
+
+      <div class="drink-selector-grid" id="drinkSelectorGrid"></div>
+
+      <div class="selected-drinks" id="selectedDrinks">
+        <p style="color:var(--text-dim);font-size:12px;text-align:center;padding:12px 0;">No drinks selected yet</p>
+      </div>
+
+      <div class="wizard-nav">
+        <button class="ctrl-btn" onclick="wizardNext(1)">← Back</button>
+        <button class="ctrl-btn primary" onclick="wizardNext(3)" id="wizNext2" disabled>Next →</button>
+      </div>
+    </div>
+
+    <!-- Step 3: Timing -->
+    <div class="wizard-step" id="wizStep3">
+      <div class="wizard-step-label">Step 3 — Timing</div>
+
+      <div class="slider-row">
+        <span class="slider-label">Prep time</span>
+        <input type="range" min="1" max="10" step="0.5" value="5" id="prepSlider" oninput="updateSliders()">
+        <span class="slider-value" id="prepValue">5 min</span>
+      </div>
+
+      <div class="slider-row" id="betweenRow">
+        <span class="slider-label">Between drinks</span>
+        <input type="range" min="0.5" max="10" step="0.5" value="3.5" id="betweenSlider" oninput="updateSliders()">
+        <span class="slider-value" id="betweenValue">3.5 min</span>
+      </div>
+
+      <div class="wizard-nav">
+        <button class="ctrl-btn" onclick="wizardNext(2)">← Back</button>
+        <button class="ctrl-btn primary" onclick="wizardNext(4)">Next →</button>
+      </div>
+    </div>
+
+    <!-- Step 4: Confirm -->
+    <div class="wizard-step" id="wizStep4">
+      <div class="wizard-step-label">Step 4 — Confirm</div>
+
+      <div class="confirm-timeline" id="confirmTimeline"></div>
+
+      <div class="wizard-nav">
+        <button class="ctrl-btn" onclick="wizardNext(3)">← Back</button>
+        <button class="ctrl-btn" onclick="scheduleTestRun()">🧪 Test now</button>
+        <button class="ctrl-btn primary" onclick="scheduleSubmit()">☕ Schedule it!</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <script>
   // ── Config ──────────────────────────────────────────────
@@ -745,7 +1128,557 @@
   });
 
   // Keyboard: Escape closes modal
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeModal(); closeWizard(); } });
+
+  // ── Schedule System ────────────────────────────────────
+  const wizardState = {
+    selectedDate: null,   // 'YYYY-MM-DD'
+    selectedTime: null,   // 'HH:MM'
+    drinks: [],           // [{beverage, label, icon}]
+    prepMinutes: 5,
+    betweenMinutes: 3.5,
+  };
+
+  // ── Wizard: Open / Close / Navigate ─────────────────────
+  function openScheduleWizard() {
+    wizardState.drinks = [];
+    wizardState.selectedDate = null;
+    wizardState.selectedTime = null;
+    wizardState.prepMinutes = 5;
+    wizardState.betweenMinutes = 3.5;
+    document.getElementById('prepSlider').value = 5;
+    document.getElementById('betweenSlider').value = 3.5;
+    updateSliders();
+    buildDateChips();
+    buildTimeChips();
+    buildDrinkSelector();
+    renderSelectedDrinks();
+    wizardNext(1);
+    document.getElementById('wizardOverlay').classList.add('active');
+  }
+
+  function closeWizard() {
+    document.getElementById('wizardOverlay').classList.remove('active');
+  }
+
+  function wizardNext(step) {
+    document.querySelectorAll('.wizard-step').forEach(s => s.classList.remove('active'));
+    document.getElementById('wizStep' + step).classList.add('active');
+    if (step === 3) {
+      // Show/hide "between drinks" row if only 1 drink
+      document.getElementById('betweenRow').style.display = wizardState.drinks.length > 1 ? 'flex' : 'none';
+    }
+    if (step === 4) buildConfirmTimeline();
+  }
+
+  // Close wizard on backdrop click
+  document.getElementById('wizardOverlay').addEventListener('click', (e) => {
+    if (e.target === document.getElementById('wizardOverlay')) closeWizard();
+  });
+
+  // ── Wizard Step 1: Date & Time ─────────────────────────
+  function buildDateChips() {
+    const container = document.getElementById('dateChips');
+    const today = new Date();
+    const dates = [];
+
+    // Today
+    dates.push({ label: 'Today', value: fmtDate(today) });
+    // Tomorrow
+    const tmrw = new Date(today); tmrw.setDate(tmrw.getDate() + 1);
+    dates.push({ label: 'Tomorrow', value: fmtDate(tmrw) });
+    // This Saturday (next upcoming Saturday)
+    const sat = new Date(today);
+    sat.setDate(sat.getDate() + ((6 - sat.getDay() + 7) % 7 || 7));
+    dates.push({ label: `This Saturday (${fmtDateShort(sat)})`, value: fmtDate(sat) });
+    // Next Saturday
+    const nsat = new Date(sat); nsat.setDate(nsat.getDate() + 7);
+    dates.push({ label: `Next Saturday (${fmtDateShort(nsat)})`, value: fmtDate(nsat) });
+
+    container.innerHTML = dates.map(d =>
+      `<div class="chip${wizardState.selectedDate === d.value ? ' selected' : ''}" onclick="selectDate('${d.value}', this)">${d.label}</div>`
+    ).join('') + `<input type="date" class="chip-custom-input" id="customDate" onchange="selectDateCustom(this)">`;
+  }
+
+  function selectDate(val, el) {
+    wizardState.selectedDate = val;
+    document.querySelectorAll('#dateChips .chip').forEach(c => c.classList.remove('selected'));
+    el.classList.add('selected');
+    document.getElementById('customDate').value = '';
+    validateStep1();
+  }
+
+  function selectDateCustom(input) {
+    if (input.value) {
+      wizardState.selectedDate = input.value;
+      document.querySelectorAll('#dateChips .chip').forEach(c => c.classList.remove('selected'));
+      validateStep1();
+    }
+  }
+
+  function buildTimeChips() {
+    const container = document.getElementById('timeChips');
+    const times = ['06:00', '07:00', '08:00', '09:00', '10:00', '11:00'];
+    container.innerHTML = times.map(t =>
+      `<div class="chip${wizardState.selectedTime === t ? ' selected' : ''}" onclick="selectTime('${t}', this)">${t}</div>`
+    ).join('') + `<input type="time" class="chip-custom-input" id="customTime" onchange="selectTimeCustom(this)">`;
+  }
+
+  function selectTime(val, el) {
+    wizardState.selectedTime = val;
+    document.querySelectorAll('#timeChips .chip').forEach(c => c.classList.remove('selected'));
+    el.classList.add('selected');
+    document.getElementById('customTime').value = '';
+    validateStep1();
+  }
+
+  function selectTimeCustom(input) {
+    if (input.value) {
+      wizardState.selectedTime = input.value;
+      document.querySelectorAll('#timeChips .chip').forEach(c => c.classList.remove('selected'));
+      validateStep1();
+    }
+  }
+
+  function validateStep1() {
+    document.getElementById('wizNext1').disabled = !(wizardState.selectedDate && wizardState.selectedTime);
+  }
+
+  // ── Wizard Step 2: Drink Selector ──────────────────────
+  function buildDrinkSelector() {
+    const grid = document.getElementById('drinkSelectorGrid');
+    // Exclude steam and hot water from the drink selector
+    const drinkBevs = BEVERAGES.filter(b => b.name !== 'steam' && b.name !== 'hot_water');
+    grid.innerHTML = drinkBevs.map(b =>
+      `<div class="drink-selector-item" onclick="addDrink('${b.name}', '${b.label}', '${b.icon}')">
+        <span class="ds-icon">${b.icon}</span>
+        <span class="ds-name">${b.label}</span>
+      </div>`
+    ).join('');
+  }
+
+  function addDrink(name, label, icon) {
+    wizardState.drinks.push({ beverage: name, label, icon });
+    renderSelectedDrinks();
+    document.getElementById('wizNext2').disabled = wizardState.drinks.length === 0;
+  }
+
+  function removeDrink(index) {
+    wizardState.drinks.splice(index, 1);
+    renderSelectedDrinks();
+    document.getElementById('wizNext2').disabled = wizardState.drinks.length === 0;
+  }
+
+  function renderSelectedDrinks() {
+    const container = document.getElementById('selectedDrinks');
+    if (wizardState.drinks.length === 0) {
+      container.innerHTML = '<p style="color:var(--text-dim);font-size:12px;text-align:center;padding:12px 0;">No drinks selected yet</p>';
+      return;
+    }
+    container.innerHTML = wizardState.drinks.map((d, i) =>
+      `<div class="selected-drink">
+        <div class="sd-left">
+          <span class="sd-num">#${i + 1}</span>
+          <span>${d.icon} ${d.label}</span>
+        </div>
+        <button class="sd-remove" onclick="removeDrink(${i})" title="Remove">✕</button>
+      </div>`
+    ).join('');
+  }
+
+  // ── Wizard Step 3: Timing Sliders ──────────────────────
+  function updateSliders() {
+    const prep = parseFloat(document.getElementById('prepSlider').value);
+    const between = parseFloat(document.getElementById('betweenSlider').value);
+    wizardState.prepMinutes = prep;
+    wizardState.betweenMinutes = between;
+    document.getElementById('prepValue').textContent = prep + ' min';
+    document.getElementById('betweenValue').textContent = between + ' min';
+  }
+
+  // ── Wizard Step 4: Confirm Timeline ────────────────────
+  function buildConfirmTimeline() {
+    const container = document.getElementById('confirmTimeline');
+    const baseDate = new Date(`${wizardState.selectedDate}T${wizardState.selectedTime}:00`);
+    const lines = [];
+    let currentTime = new Date(baseDate);
+
+    // Wake up
+    lines.push(`<div class="ct-line"><span class="ct-time">${fmtTime(currentTime)}</span><span class="ct-icon">⚡</span><span class="ct-text">Machine wakes up</span></div>`);
+
+    // Prep wait
+    lines.push(`<div class="ct-wait">⏳ ${wizardState.prepMinutes} min — prepare the milk frother</div>`);
+    currentTime = new Date(currentTime.getTime() + wizardState.prepMinutes * 60000);
+
+    // Each drink
+    wizardState.drinks.forEach((drink, i) => {
+      lines.push(`<div class="ct-line"><span class="ct-time">${fmtTime(currentTime)}</span><span class="ct-icon">${drink.icon}</span><span class="ct-text">${drink.label} #${i + 1}</span></div>`);
+
+      if (i < wizardState.drinks.length - 1) {
+        lines.push(`<div class="ct-wait">⏳ ${wizardState.betweenMinutes} min</div>`);
+        currentTime = new Date(currentTime.getTime() + wizardState.betweenMinutes * 60000);
+      }
+    });
+
+    // Summary
+    const datePretty = new Date(wizardState.selectedDate + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+    container.innerHTML =
+      `<div style="font-size:14px;font-weight:600;margin-bottom:12px;">📅 ${datePretty}</div>` +
+      lines.join('') +
+      `<div style="margin-top:12px;font-size:12px;color:var(--text-dim);">Profile: ${currentProfile} | ${wizardState.drinks.length} drink(s)</div>`;
+  }
+
+  // ── Schedule Submit ────────────────────────────────────
+  async function scheduleSubmit() {
+    const payload = {
+      trigger: { date: wizardState.selectedDate, time: wizardState.selectedTime },
+      drinks: wizardState.drinks.map(d => ({ beverage: d.beverage, label: d.label })),
+      timing: { prep_minutes: wizardState.prepMinutes, between_drinks_minutes: wizardState.betweenMinutes },
+      profile: currentProfile,
+    };
+
+    try {
+      const res = await fetch(API + '/api/schedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        showToast('Brew scheduled! ☕', 'success');
+        addLog(`Scheduled: ${wizardState.drinks.length} drink(s) at ${wizardState.selectedTime} on ${wizardState.selectedDate}`, '📅');
+        closeWizard();
+        fetchSchedules();
+      } else {
+        showToast(data.error || 'Failed to schedule', 'error');
+      }
+    } catch (e) {
+      showToast('Failed to create schedule', 'error');
+    }
+  }
+
+  async function scheduleTestRun() {
+    // First create the schedule, then trigger test
+    const payload = {
+      trigger: { date: wizardState.selectedDate, time: wizardState.selectedTime },
+      drinks: wizardState.drinks.map(d => ({ beverage: d.beverage, label: d.label })),
+      timing: { prep_minutes: wizardState.prepMinutes, between_drinks_minutes: wizardState.betweenMinutes },
+      profile: currentProfile,
+    };
+
+    try {
+      const res = await fetch(API + '/api/schedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+
+      if (data.success && data.schedule) {
+        // Now trigger test
+        const testRes = await fetch(API + `/api/schedule/${data.schedule.id}/test`, { method: 'POST' });
+        const testData = await testRes.json();
+        if (testData.success) {
+          showToast('Dry-run started — check logs!', 'info');
+          addLog('Schedule dry-run started', '🧪');
+          closeWizard();
+          fetchSchedules();
+        } else {
+          showToast(testData.error || 'Test failed', 'error');
+        }
+      } else {
+        showToast(data.error || 'Failed to create schedule for test', 'error');
+      }
+    } catch (e) {
+      showToast('Test failed', 'error');
+    }
+  }
+
+  // ── Schedule List ──────────────────────────────────────
+  let schedules = [];
+
+  async function fetchSchedules() {
+    try {
+      const res = await fetch(API + '/api/schedule');
+      const data = await res.json();
+      schedules = data.schedules || [];
+      renderSchedules();
+    } catch (e) {
+      // Will retry on next poll
+    }
+  }
+
+  function renderSchedules() {
+    const container = document.getElementById('scheduleCards');
+    const empty = document.getElementById('scheduleEmpty');
+
+    // Filter out completed/cancelled older than 1 hour
+    const active = schedules.filter(s => {
+      if (s.status === 'completed' || s.status === 'cancelled') {
+        const completed = new Date(s.completed_at || s.created_at);
+        return (Date.now() - completed.getTime()) < 3600000;
+      }
+      return true;
+    });
+
+    if (active.length === 0) {
+      empty.style.display = 'block';
+      container.querySelectorAll('.schedule-card').forEach(c => c.remove());
+      return;
+    }
+
+    empty.style.display = 'none';
+
+    container.innerHTML = active.map(s => {
+      const drinks = s.drinks || [];
+      const trigger = s.trigger || {};
+      const timing = s.timing || {};
+      const status = s.status || 'pending';
+      const datePretty = trigger.date ? new Date(trigger.date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) : '?';
+
+      // Build mini timeline
+      let timeline = '';
+      const baseTime = trigger.time || '??:??';
+      let t = parseTimeToMinutes(baseTime);
+
+      timeline += timelineNode(minutesToTime(t), '⚡', 'Wake up', status === 'running');
+      timeline += timelineConnector(`${timing.prep_minutes || 5}m`);
+      t += (timing.prep_minutes || 5);
+
+      drinks.forEach((d, i) => {
+        const isActive = status === 'running';
+        timeline += timelineNode(minutesToTime(t), '☕', d.label, isActive);
+        if (i < drinks.length - 1) {
+          timeline += timelineConnector(`${timing.between_drinks_minutes || 3.5}m`);
+          t += (timing.between_drinks_minutes || 3.5);
+        }
+      });
+
+      // Drinks preview pills
+      const drinkPills = drinks.map((d, i) => {
+        const pill = `<span class="cdp-drink">☕ ${d.label}</span>`;
+        const arrow = i < drinks.length - 1 ? `<span class="cdp-arrow">→</span>` : '';
+        return pill + arrow;
+      }).join('');
+
+      // Hero countdown for pending
+      let heroHtml = '';
+      if (status === 'pending' && s.countdown_seconds > 0) {
+        heroHtml = `
+          <div class="countdown-hero" id="countdown-hero-${s.id}" data-target="${trigger.date}T${trigger.time}:00">
+            <div class="countdown-label">☕ Brewing in</div>
+            <div class="countdown-digits">
+              <div class="countdown-segment"><span class="countdown-number" id="cd-h-${s.id}">--</span><span class="countdown-unit">Hours</span></div>
+              <span class="countdown-separator">:</span>
+              <div class="countdown-segment"><span class="countdown-number accent" id="cd-m-${s.id}">--</span><span class="countdown-unit">Minutes</span></div>
+              <span class="countdown-separator">:</span>
+              <div class="countdown-segment"><span class="countdown-number" id="cd-s-${s.id}">--</span><span class="countdown-unit">Seconds</span></div>
+            </div>
+            <div class="countdown-drinks-preview">${drinkPills}</div>
+          </div>`;
+      } else if (status === 'pending' && (s.countdown_seconds === 0 || !s.countdown_seconds)) {
+        heroHtml = `
+          <div class="countdown-hero">
+            <div class="countdown-label">Scheduled</div>
+            <div style="font-size:20px;color:var(--text-muted);padding:12px 0;">⏳ Waiting for trigger time...</div>
+            <div class="countdown-drinks-preview">${drinkPills}</div>
+          </div>`;
+      }
+
+      // Running state hero
+      let runningHtml = '';
+      if (status === 'running') {
+        runningHtml = `
+          <div class="running-status" id="running-status-${s.id}">
+            <span class="running-step-icon" id="running-icon-${s.id}">⚡</span>
+            <div class="running-step-text" id="running-text-${s.id}">Starting brew sequence...</div>
+            <div class="running-step-detail" id="running-detail-${s.id}">Connecting to machine</div>
+          </div>`;
+      }
+
+      // Completed hero
+      let completedHtml = '';
+      if (status === 'completed') {
+        completedHtml = `
+          <div style="text-align:center;padding:16px 0;font-size:32px;">
+            ✅ <span style="font-size:16px;color:var(--success);font-weight:600;">All drinks brewed successfully!</span>
+          </div>`;
+      }
+
+      // Error hero
+      let errorHtml = '';
+      if (status === 'error') {
+        errorHtml = `
+          <div style="text-align:center;padding:16px 0;">
+            <div style="font-size:32px;margin-bottom:8px;">⚠️</div>
+            <div style="color:var(--danger);font-size:14px;font-weight:600;">${s.error || 'Brew sequence failed'}</div>
+          </div>`;
+      }
+
+      // Progress bar for running
+      let progressHtml = '';
+      if (status === 'running') {
+        progressHtml = `<div class="schedule-progress"><div class="schedule-progress-bar" id="sched-progress-${s.id}" style="width:0%"></div></div>`;
+      }
+
+      return `
+        <div class="schedule-card ${status}">
+          <div class="schedule-card-header">
+            <div class="schedule-card-title">
+              <span class="schedule-status-badge ${status}">${status}</span>
+              📅 ${datePretty} at ${trigger.time}
+            </div>
+            <div class="schedule-card-actions">
+              ${status === 'pending' ? `<button onclick="deleteSchedule('${s.id}')">Cancel</button>` : ''}
+              ${status === 'running' ? `<button class="del" onclick="cancelActiveBrew()">Stop</button>` : ''}
+              ${status === 'completed' || status === 'error' ? `<button class="del" onclick="deleteSchedule('${s.id}')">Remove</button>` : ''}
+            </div>
+          </div>
+          ${heroHtml}
+          ${runningHtml}
+          ${completedHtml}
+          ${errorHtml}
+          <div class="schedule-timeline">${timeline}</div>
+          ${progressHtml}
+        </div>
+      `;
+    }).join('');
+
+    // Start ticking countdowns after render
+    _startCountdownTicks();
+  }
+
+  // ── Client-side per-second countdown ticking ──────────
+  let _countdownInterval = null;
+
+  function _startCountdownTicks() {
+    // Clear any previous interval
+    if (_countdownInterval) clearInterval(_countdownInterval);
+
+    // Find all countdown heroes with target times
+    const tick = () => {
+      document.querySelectorAll('[id^="countdown-hero-"]').forEach(hero => {
+        const target = new Date(hero.dataset.target);
+        const schedId = hero.id.replace('countdown-hero-', '');
+        const now = new Date();
+        const diff = Math.max(0, Math.floor((target - now) / 1000));
+
+        const h = Math.floor(diff / 3600);
+        const m = Math.floor((diff % 3600) / 60);
+        const s = diff % 60;
+
+        const hEl = document.getElementById(`cd-h-${schedId}`);
+        const mEl = document.getElementById(`cd-m-${schedId}`);
+        const sEl = document.getElementById(`cd-s-${schedId}`);
+
+        if (hEl) hEl.textContent = String(h).padStart(2, '0');
+        if (mEl) mEl.textContent = String(m).padStart(2, '0');
+        if (sEl) sEl.textContent = String(s).padStart(2, '0');
+
+        // When it hits zero, refresh from server
+        if (diff === 0) {
+          fetchSchedules();
+        }
+      });
+    };
+
+    tick(); // Immediate first tick
+    _countdownInterval = setInterval(tick, 1000);
+  }
+
+  function timelineNode(time, icon, label, active) {
+    return `<div class="timeline-node${active ? ' active' : ''}">
+      <span class="time">${time}</span>
+      <span class="icon">${icon}</span>
+      <span class="label">${label}</span>
+    </div>`;
+  }
+
+  function timelineConnector(duration) {
+    return `<div class="timeline-connector"><span class="duration">${duration}</span></div>`;
+  }
+
+  async function deleteSchedule(id) {
+    try {
+      await fetch(API + `/api/schedule/${id}`, { method: 'DELETE' });
+      showToast('Schedule removed', 'info');
+      fetchSchedules();
+    } catch (e) {
+      showToast('Failed to remove schedule', 'error');
+    }
+  }
+
+  async function cancelActiveBrew() {
+    try {
+      await fetch(API + '/api/schedule/active/cancel', { method: 'POST' });
+      showToast('Cancelling brew...', 'info');
+      fetchSchedules();
+    } catch (e) {
+      showToast('Failed to cancel brew', 'error');
+    }
+  }
+
+  // Poll active brew status for running schedules
+  async function pollActiveStatus() {
+    try {
+      const res = await fetch(API + '/api/schedule/active');
+      const data = await res.json();
+      if (data.active && data.schedule_id) {
+        // Update progress bar
+        const bar = document.getElementById(`sched-progress-${data.schedule_id}`);
+        if (bar) bar.style.width = ((data.progress || 0) * 100) + '%';
+
+        // Update running status hero
+        const stepIcons = {
+          connecting: '🔗', powering_on: '⚡', heating: '🔥',
+          prepping: '🫗', profile: '👤', brewing: '☕',
+          waiting: '⏳', completed: '✅', error: '⚠️',
+        };
+        const iconEl = document.getElementById(`running-icon-${data.schedule_id}`);
+        const textEl = document.getElementById(`running-text-${data.schedule_id}`);
+        const detailEl = document.getElementById(`running-detail-${data.schedule_id}`);
+
+        if (iconEl) iconEl.textContent = stepIcons[data.step] || '☕';
+        if (textEl) {
+          const stepNames = {
+            connecting: 'Connecting to machine...',
+            powering_on: 'Waking up the machine',
+            heating: 'Heating up...',
+            prepping: '🫗 Prepare the milk frother!',
+            profile: 'Setting profile...',
+            brewing: 'Brewing your drink!',
+            waiting: 'Waiting between drinks...',
+            completed: 'All done!',
+            error: 'Something went wrong',
+          };
+          textEl.textContent = stepNames[data.step] || data.step;
+        }
+        if (detailEl) detailEl.textContent = data.detail || '';
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  // ── Helpers ────────────────────────────────────────────
+  function fmtDate(d) { return d.toISOString().split('T')[0]; }
+  function fmtDateShort(d) { return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); }
+  function fmtTime(d) {
+    return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+  }
+  function parseTimeToMinutes(t) {
+    const [h, m] = t.split(':').map(Number);
+    return h * 60 + (m || 0);
+  }
+  function minutesToTime(m) {
+    const h = Math.floor(m / 60) % 24;
+    const min = Math.round(m % 60);
+    return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+  }
+
+  // ── Init schedules ────────────────────────────────────
+  fetchSchedules();
+  setInterval(fetchSchedules, 15000);  // Refresh schedule list every 15s
+  setInterval(pollActiveStatus, 3000); // Poll active brew status every 3s
 </script>
 
 </body>

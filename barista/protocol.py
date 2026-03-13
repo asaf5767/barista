@@ -76,6 +76,19 @@ WIDE_INGREDIENTS = frozenset({
     Ingredient.HOT_WATER,
 })
 
+# Ingredients that are actual brewing parameters (sent in brew commands).
+# Metadata fields (VISIBLE, INDEX_LENGTH, PROGRAMMABLE, ACCESSORIO) are
+# profile metadata returned by RecipeQuantityRead but NOT sent to brew.
+BREW_INGREDIENTS = frozenset({
+    Ingredient.TEMP,
+    Ingredient.COFFEE,
+    Ingredient.TASTE,
+    Ingredient.DUE_X_PER,
+    Ingredient.MILK,
+    Ingredient.INVERSION,
+    Ingredient.HOT_WATER,
+})
+
 # Human-readable names for ingredients
 INGREDIENT_NAMES = {
     Ingredient.TEMP:         "temperature",
@@ -294,12 +307,15 @@ def cmd_recipe_read(profile: int, beverage: BeverageId) -> bytes:
 
 def cmd_brew_recipe(beverage: BeverageId, recipe: list[tuple[int, int]]) -> bytes:
     """Brew a beverage using a full recipe (ingredient list from the machine).
-    This sends the exact same parameters that the machine has saved,
-    ensuring the brew matches the user's profile settings.
+    Filters out profile metadata (visible, index_length, etc.) and sends
+    only actual brewing parameters.
 
     Packet: [0x83] [0xF0] [bev_id] [0x01=Start] [...ingredients] [taste_type]
     """
-    has_inversion = any(ing_id == Ingredient.INVERSION for ing_id, _ in recipe)
+    # Filter to only brewing ingredients — skip metadata fields
+    brew_recipe = [(ing_id, val) for ing_id, val in recipe if ing_id in BREW_INGREDIENTS]
+
+    has_inversion = any(ing_id == Ingredient.INVERSION for ing_id, _ in brew_recipe)
     taste_type = TasteType.PREPARE_INVERSION if has_inversion else TasteType.PREPARE
 
     payload = [
@@ -307,7 +323,7 @@ def cmd_brew_recipe(beverage: BeverageId, recipe: list[tuple[int, int]]) -> byte
         beverage & 0xFF,
         0x01,                       # Trigger: Start
     ]
-    payload.extend(encode_recipe(recipe))
+    payload.extend(encode_recipe(brew_recipe))
     payload.append(taste_type & 0xFF)
     return build_packet(payload)
 

@@ -222,32 +222,46 @@ class DelonghiBLE:
 
     async def request_status(self) -> Optional[dict]:
         """Send a monitor request and wait briefly for the response."""
+        return await self.send_and_wait(cmd_monitor(), "monitor")
+
+    async def send_and_wait(self, command: bytes, response_type: str,
+                            timeout: float = 5.0) -> Optional[dict]:
+        """Send a command and wait for a specific response type.
+        Returns the parsed response dict, or None on timeout.
+        """
         event = asyncio.Event()
         result = {}
 
         def capture(parsed):
-            if parsed.get("type") == "monitor":
+            if parsed.get("type") == response_type:
                 result.update(parsed)
                 event.set()
+            # Also keep monitoring data flowing
+            if parsed.get("type") == "monitor":
+                self._last_status = parsed
+                self._last_status_time = time.time()
 
         old_cb = self._status_callback
         self._status_callback = capture
 
-        sent = await self.send(cmd_monitor())
+        sent = await self.send(command)
         if not sent:
             self._status_callback = old_cb
-            return self._last_status
+            if response_type == "monitor":
+                return self._last_status
+            return None
 
         try:
-            await asyncio.wait_for(event.wait(), timeout=5.0)
+            await asyncio.wait_for(event.wait(), timeout=timeout)
         except asyncio.TimeoutError:
-            logger.warning("Status request timed out")
+            logger.warning(f"Request for '{response_type}' timed out")
 
         self._status_callback = old_cb
         if result:
-            self._last_status = result
-            self._last_status_time = time.time()
-        return result if result else self._last_status
+            if response_type == "monitor":
+                self._last_status = result
+                self._last_status_time = time.time()
+        return result if result else None
 
     # ── Background Monitoring ─────────────────────────────────────────────────
 

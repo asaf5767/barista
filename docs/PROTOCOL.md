@@ -63,7 +63,9 @@ def compute_crc(packet_without_crc: bytes) -> bytes:
 | `0x90` | ParameterWrite | Request |
 | `0xA2` | StatisticsRead | Request/Response |
 | `0xA4` | ProfileNameRead | Request/Response |
+| `0xA6` | RecipeQuantityRead | Request/Response |
 | `0xA9` | ProfileSelection | Request |
+| `0xB0` | RecipeMinMaxSync | Request/Response |
 | `0xE2` | SetTime | Request |
 
 ## Beverage IDs
@@ -84,6 +86,7 @@ def compute_crc(packet_without_crc: bytes) -> bytes:
 | `0x0C` | Hot Milk |
 | `0x0D` | Cappuccino Doppio+ |
 | `0x0E` | Cold Milk |
+| `0x0F` | Cappuccino Mix (CappuccinoReverse — milk-first cappuccino) |
 | `0x10` | Hot Water |
 | `0x11` | Steam |
 | `0x13` | Ristretto |
@@ -97,7 +100,32 @@ def compute_crc(packet_without_crc: bytes) -> bytes:
 
 ## Beverage Command Structure
 
-### Start Brew
+### Start Brew (with recipe from profile)
+
+The preferred method is to read the saved recipe from the machine, then send it back:
+
+```
+[0x0D] [len] [0x83] [0xF0] [bev_id] [0x01] [...ingredients] [taste_type] [CRC_hi] [CRC_lo]
+```
+
+- `bev_id` — Beverage ID from table above
+- `0x01` (trigger) — Start
+- `ingredients` — Variable-length ingredient list (see Ingredient Encoding)
+- `taste_type` — `0x02` (Prepare) or `0x06` (PrepareInversion, for milk-first drinks)
+
+### Taste Types (EcamBeverageTasteType)
+
+| Value | Name |
+|-------|------|
+| `0x00` | Delete |
+| `0x01` | Save |
+| `0x02` | Prepare |
+| `0x03` | PrepareAndSave |
+| `0x05` | SaveInversion |
+| `0x06` | PrepareInversion |
+| `0x07` | PrepareAndSaveInversion |
+
+### Legacy Start Brew (hardcoded parameters)
 
 ```
 [0x0D] [len] [0x83] [0xF0] [bev_id] [0x01] [0x01] [0x00]
@@ -105,12 +133,9 @@ def compute_crc(packet_without_crc: bytes) -> bytes:
 [CRC_hi] [CRC_lo]
 ```
 
-- `bev_id` — Beverage ID from table above
-- `0x01` (trigger) — Start
 - `quantity` — Volume in ml as single byte (e.g., `0x28` = 40ml)
 - `aroma` — `0x01` (extra mild) to `0x05` (extra strong)
 - `temp` — `0x00` (low) to `0x03` (very high)
-- `0x06` — End marker
 
 ### Stop Brew
 
@@ -194,16 +219,52 @@ alarm_bits = byte[7] + (byte[8] << 8) + (byte[12] << 16) + (byte[13] << 24)
 
 ## Ingredient Parameters
 
-Used in beverage commands to specify recipe details:
+Ingredients are encoded as variable-length fields. **Wide** ingredients use a 2-byte big-endian value; **narrow** ingredients use a 1-byte value.
 
-| ID | Ingredient | Encoding |
-|----|------------|----------|
-| `0x01` | Coffee quantity | 2 bytes (ml) |
-| `0x02` | Taste/Aroma | 1 byte |
-| `0x08` | Temperature | 1 byte |
-| `0x09` | Milk quantity | 2 bytes (ml) |
-| `0x0F` | Hot water quantity | 2 bytes (ml) |
-| `0x1C` | Special flag | 1 byte |
+| ID | Ingredient | Encoding | Notes |
+|----|------------|----------|-------|
+| `0x00` | Temperature | Narrow (1 byte) | `0x00`=Low, `0x01`=Mid, `0x02`=High, `0x03`=Very High |
+| `0x01` | Coffee quantity | **Wide (2 bytes)** | Value in ml |
+| `0x02` | Taste/Aroma | Narrow (1 byte) | `0x01`=Extra Mild to `0x05`=Extra Strong |
+| `0x08` | DueXPer | Narrow (1 byte) | Double-shot parameter |
+| `0x09` | Milk quantity | **Wide (2 bytes)** | Duration in seconds |
+| `0x0C` | Inversion | Narrow (1 byte) | `0x00`=normal, `0x01`=milk first |
+| `0x0F` | Hot water quantity | **Wide (2 bytes)** | Value in ml |
+| `0x18` | Programmable | Narrow (1 byte) | |
+| `0x19` | Visible | Narrow (1 byte) | |
+| `0x1B` | IndexLength | Narrow (1 byte) | |
+| `0x1C` | Accessorio | Narrow (1 byte) | |
+
+### Ingredient Encoding Example
+
+Cappuccino with coffee=65ml, milk=190s, taste=Normal, inversion=off:
+```
+01 00 41   # Coffee (wide): 0x0041 = 65
+09 00 BE   # Milk (wide): 0x00BE = 190
+02 03      # Taste (narrow): 0x03 = Normal
+0C 00      # Inversion (narrow): 0x00 = off
+```
+
+## Recipe Reading (RecipeQuantityRead — 0xA6)
+
+Read the saved recipe for a beverage from a machine profile.
+
+### Request
+
+```
+[0x0D] [len] [0xA6] [0xF0] [profile] [beverage_id] [CRC_hi] [CRC_lo]
+```
+
+- `profile` — Profile number (typically `0x01`)
+- `beverage_id` — Beverage ID from table above
+
+### Response
+
+```
+[0xD0] [len] [0xA6] [0x0F] [profile] [beverage_id] [...ingredients] [CRC_hi] [CRC_lo]
+```
+
+The ingredient list uses the same encoding as brew commands. Parse until you run out of bytes (before CRC).
 
 ## Settings Commands
 

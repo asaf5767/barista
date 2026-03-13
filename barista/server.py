@@ -21,20 +21,26 @@ from aiohttp import web
 from barista.protocol import (
     BeverageId,
     Aroma,
+    Ingredient,
     Temperature,
     BEVERAGE_DEFAULTS,
+    DINAMICA_BEVERAGES,
     VERIFIED_COMMANDS,
     VERIFIED_STOP_COMMANDS,
     cmd_brew,
+    cmd_brew_recipe,
     cmd_brew_verified,
     cmd_brew_stop,
     cmd_stop_verified,
     cmd_hot_water,
     cmd_monitor,
     cmd_power_on,
+    cmd_recipe_read,
     cmd_steam,
     cmd_profile_select,
     get_beverage_names,
+    recipe_to_dict,
+    recipe_from_dict,
 )
 from barista.ble import DelonghiBLE
 
@@ -50,6 +56,79 @@ machine = DelonghiBLE()
 PORT = 8080
 MACHINE_ADDRESS = None
 START_TIME = time.time()
+
+# Recipe cache: beverage_name -> list of (ingredient_id, value) tuples
+recipe_cache: dict[str, list[tuple[int, int]]] = {}
+current_profile: int = 1
+
+
+# ── Recipe Management ────────────────────────────────────────────────────────
+
+async def fetch_recipe(beverage: BeverageId, profile: int = 1) -> Optional[list[tuple[int, int]]]:
+    """Fetch saved recipe for a beverage from the machine."""
+    cmd = cmd_recipe_read(profile, beverage)
+    response = await machine.send_and_wait(cmd, "recipe", timeout=3.0)
+    if response and "ingredients" in response:
+        return response["ingredients"]
+    return None
+
+
+async def fetch_all_recipes(profile: int = 1):
+    """Fetch recipes for all Dinamica Plus beverages and cache them."""
+    global recipe_cache
+    logger.info(f"Fetching recipes for profile {profile}...")
+    fetched = 0
+
+    for bev in DINAMICA_BEVERAGES:
+        # Skip steam/hot_water — they don't have editable recipes
+        if bev in (BeverageId.STEAM, BeverageId.HOT_WATER):
+            continue
+
+        try:
+            ingredients = await fetch_recipe(bev, profile)
+            if ingredients:
+                recipe_cache[bev.name.lower()] = ingredients
+                readable = recipe_to_dict(ingredients)
+                logger.info(f"  {bev.name}: {readable}")
+                fetched += 1
+            else:
+                logger.warning(f"  {bev.name}: no response")
+        except Exception as e:
+            logger.warning(f"  {bev.name}: error {e}")
+
+        # Small delay between requests to not overwhelm BLE
+        await asyncio.sleep(0.3)
+
+    logger.info(f"Fetched {fetched}/{len(DINAMICA_BEVERAGES) - 2} recipes")
+
+
+def get_recipe_display(bev_name: str) -> Optional[dict]:
+    """Get a human-readable recipe summary for display in the UI."""
+    ingredients = recipe_cache.get(bev_name)
+    if not ingredients:
+        return None
+
+    readable = recipe_to_dict(ingredients)
+    display = {}
+
+    if "coffee" in readable:
+        display["coffee_ml"] = readable["coffee"]
+    if "milk" in readable:
+        display["milk_seconds"] = readable["milk"]
+    if "hot_water" in readable:
+        display["hot_water_ml"] = readable["hot_water"]
+    if "taste" in readable:
+        try:
+            display["taste"] = Aroma(readable["taste"]).name.replace("_", " ").title()
+        except ValueError:
+            display["taste"] = str(readable["taste"])
+    if "temperature" in readable:
+        try:
+            display["temperature"] = Temperature(readable["temperature"]).name.replace("_", " ").title()
+        except ValueError:
+            display["temperature"] = str(readable["temperature"])
+
+    return display
 
 
 # ── HTTP Handlers ─────────────────────────────────────────────────────────────
@@ -101,19 +180,23 @@ async def handle_api(request: web.Request) -> web.Response:
         "connected": machine.connected,
         "uptime_seconds": round(time.time() - START_TIME),
         "machine_address": MACHINE_ADDRESS,
+        "profile": current_profile,
+        "recipes_loaded": len(recipe_cache),
         "endpoints": {
-            "GET /":               "Web UI",
-            "GET /api":            "API info",
-            "GET /api/status":     "Machine status",
-            "POST /api/power":     "Turn machine on",
-            "POST /api/brew":      "Brew a beverage",
-            "POST /api/brew/stop": "Stop current brew",
-            "POST /api/steam":     "Start steam",
-            "POST /api/hot-water": "Dispense hot water",
-            "POST /api/profile":   "Select profile",
-            "GET /api/beverages":  "List available beverages",
-            "GET /api/scan":       "Scan for machines",
-            "POST /api/reconnect": "Force reconnect",
+            "GET /":                "Web UI",
+            "GET /api":             "API info",
+            "GET /api/status":      "Machine status",
+            "POST /api/power":      "Turn machine on",
+            "POST /api/brew":       "Brew a beverage (uses saved profile recipe)",
+            "POST /api/brew/stop":  "Stop current brew",
+            "POST /api/steam":      "Start steam",
+            "POST /api/hot-water":  "Dispense hot water",
+            "POST /api/profile":    "Select profile (re-fetches recipes)",
+            "GET /api/beverages":   "List available beverages with recipes",
+            "GET /api/recipes":     "All cached recipes",
+            "POST /api/recipes/refresh": "Re-fetch all recipes from machine",
+            "GET /api/scan":        "Scan for machines",
+            "POST /api/reconnect":  "Force reconnect",
         },
     })
 
@@ -124,6 +207,7 @@ async def handle_status(request: web.Request) -> web.Response:
         "connected": machine.connected,
         "uptime_seconds": round(time.time() - START_TIME),
         "status_age_seconds": round(machine.get_status_age(), 1),
+        "profile": current_profile,
     }
 
     if not machine.connected:
@@ -149,14 +233,42 @@ async def handle_power(request: web.Request) -> web.Response:
 
 
 async def handle_brew(request: web.Request) -> web.Response:
-    """POST /api/brew — Brew a beverage. Prefers verified commands."""
+    """POST /api/brew — Brew a beverage using saved profile recipe."""
     if err := _require_connected():
         return err
 
     body = await _parse_body(request)
     bev_name = _normalize_beverage_name(body.get("beverage", "coffee"))
 
-    # Try verified command first (known-good from HA integration)
+    # Resolve beverage ID
+    names = get_beverage_names()
+    if bev_name in names:
+        bev_id = BeverageId(names[bev_name])
+    elif bev_name.isdigit():
+        bev_id = BeverageId(int(bev_name))
+    else:
+        return json_response({
+            "error": f"Unknown beverage: {bev_name}",
+            "available": list(names.keys()),
+        }, 400)
+
+    # Prefer saved recipe from machine profile
+    cached_recipe = recipe_cache.get(bev_name)
+    if cached_recipe:
+        cmd = cmd_brew_recipe(bev_id, cached_recipe)
+        ok = await machine.send(cmd)
+
+        display = get_recipe_display(bev_name)
+        return json_response({
+            "success": ok,
+            "action": "brew",
+            "beverage": bev_id.name,
+            "method": "profile",
+            "profile": current_profile,
+            **(display or {}),
+        })
+
+    # Fallback to verified commands
     verified = cmd_brew_verified(bev_name)
     if verified:
         ok = await machine.send(verified)
@@ -167,18 +279,7 @@ async def handle_brew(request: web.Request) -> web.Response:
             "method": "verified",
         })
 
-    # Fallback to computed command
-    names = get_beverage_names()
-    if bev_name in names:
-        bev_id = BeverageId(names[bev_name])
-    elif bev_name.isdigit():
-        bev_id = BeverageId(int(bev_name))
-    else:
-        return json_response({
-            "error": f"Unknown beverage: {bev_name}",
-            "available": list(VERIFIED_COMMANDS.keys()) + list(names.keys()),
-        }, 400)
-
+    # Final fallback to computed command with defaults
     defaults = BEVERAGE_DEFAULTS.get(bev_id, {"quantity_ml": 100, "aroma": Aroma.NORMAL})
     quantity = body.get("quantity_ml", defaults["quantity_ml"])
     aroma = Aroma(body.get("aroma", defaults["aroma"]))
@@ -194,7 +295,7 @@ async def handle_brew(request: web.Request) -> web.Response:
         "quantity_ml": quantity,
         "aroma": aroma.name,
         "temperature": temp.name,
-        "method": "computed",
+        "method": "fallback",
     })
 
 
@@ -236,48 +337,86 @@ async def handle_hot_water(request: web.Request) -> web.Response:
 
 
 async def handle_profile(request: web.Request) -> web.Response:
-    """POST /api/profile — Select profile."""
+    """POST /api/profile — Select profile and re-fetch recipes."""
     if err := _require_connected():
         return err
+
+    global current_profile
     body = await _parse_body(request)
     profile_id = body.get("profile_id", 1)
+
     ok = await machine.send(cmd_profile_select(profile_id))
-    return json_response({"success": ok, "action": "profile_select", "profile_id": profile_id})
+    if ok:
+        current_profile = profile_id
+        # Re-fetch all recipes for the new profile
+        await fetch_all_recipes(profile_id)
+
+    return json_response({
+        "success": ok,
+        "action": "profile_select",
+        "profile_id": profile_id,
+        "recipes_loaded": len(recipe_cache),
+    })
 
 
 async def handle_beverages(request: web.Request) -> web.Response:
-    """GET /api/beverages — List available beverages."""
+    """GET /api/beverages — List available beverages with recipe details."""
     beverages = []
 
-    # Verified beverages first (these are proven to work)
-    for name in VERIFIED_COMMANDS:
-        defaults = {}
-        try:
-            bev_id = BeverageId[name.upper()]
-            defaults = BEVERAGE_DEFAULTS.get(bev_id, {})
-        except (KeyError, ValueError):
-            pass
-        beverages.append({
+    for bev in DINAMICA_BEVERAGES:
+        name = bev.name.lower()
+        entry = {
             "name": name,
-            "verified": True,
-            "default_quantity_ml": defaults.get("quantity_ml"),
-            "has_stop": name in VERIFIED_STOP_COMMANDS,
-        })
+            "id": bev.value,
+            "verified": name in VERIFIED_COMMANDS,
+            "has_recipe": name in recipe_cache,
+        }
 
-    # Additional computed beverages
-    names = get_beverage_names()
-    verified_set = set(VERIFIED_COMMANDS.keys())
-    for name, bid in sorted(names.items(), key=lambda x: x[1]):
-        if name not in verified_set:
-            defaults = BEVERAGE_DEFAULTS.get(BeverageId(bid), {})
-            beverages.append({
-                "name": name,
-                "verified": False,
-                "id": bid,
-                "default_quantity_ml": defaults.get("quantity_ml"),
-            })
+        # Add recipe display info
+        display = get_recipe_display(name)
+        if display:
+            entry["recipe"] = display
 
-    return json_response({"beverages": beverages})
+        # Fallback defaults if no recipe
+        if not display and bev in BEVERAGE_DEFAULTS:
+            defaults = BEVERAGE_DEFAULTS[bev]
+            entry["defaults"] = {
+                "coffee_ml": defaults.get("quantity_ml"),
+            }
+
+        beverages.append(entry)
+
+    return json_response({
+        "beverages": beverages,
+        "profile": current_profile,
+    })
+
+
+async def handle_recipes(request: web.Request) -> web.Response:
+    """GET /api/recipes — All cached recipes."""
+    recipes = {}
+    for bev_name, ingredients in recipe_cache.items():
+        recipes[bev_name] = {
+            "ingredients": recipe_to_dict(ingredients),
+            "display": get_recipe_display(bev_name),
+        }
+    return json_response({
+        "profile": current_profile,
+        "recipes": recipes,
+    })
+
+
+async def handle_recipes_refresh(request: web.Request) -> web.Response:
+    """POST /api/recipes/refresh — Re-fetch all recipes from the machine."""
+    if err := _require_connected():
+        return err
+
+    await fetch_all_recipes(current_profile)
+    return json_response({
+        "success": True,
+        "profile": current_profile,
+        "recipes_loaded": len(recipe_cache),
+    })
 
 
 async def handle_scan(request: web.Request) -> web.Response:
@@ -292,6 +431,9 @@ async def handle_reconnect(request: web.Request) -> web.Response:
         await machine.disconnect()
         machine._auto_reconnect = True
         ok = await machine.connect(MACHINE_ADDRESS)
+        if ok:
+            # Re-fetch recipes after reconnecting
+            await fetch_all_recipes(current_profile)
         return json_response({"success": ok, "connected": machine.connected})
     return json_response({"error": "No machine address configured"}, 400)
 
@@ -326,6 +468,8 @@ def create_app() -> web.Application:
     app.router.add_post("/api/hot-water", handle_hot_water)
     app.router.add_post("/api/profile", handle_profile)
     app.router.add_get("/api/beverages", handle_beverages)
+    app.router.add_get("/api/recipes", handle_recipes)
+    app.router.add_post("/api/recipes/refresh", handle_recipes_refresh)
     app.router.add_get("/api/scan", handle_scan)
     app.router.add_post("/api/reconnect", handle_reconnect)
 
@@ -386,6 +530,10 @@ async def cmd_serve(address: str, port: int = 8080):
             if status.get("alarms"):
                 print(f"  Alarms: {', '.join(status['alarms'])}")
 
+        # Fetch all saved recipes from the machine
+        print("\nLoading beverage recipes from machine...")
+        await fetch_all_recipes(current_profile)
+
     # Start background monitoring
     def on_status(parsed):
         if parsed.get("type") == "monitor":
@@ -400,6 +548,7 @@ async def cmd_serve(address: str, port: int = 8080):
     print(f"  De'Longhi Coffee Machine Control")
     print(f"  Web UI:  http://localhost:{port}")
     print(f"  API:     http://localhost:{port}/api")
+    print(f"  Profile: {current_profile} ({len(recipe_cache)} recipes loaded)")
     print(f"{'='*60}")
     print(f"\n  Press Ctrl+C to stop\n")
 

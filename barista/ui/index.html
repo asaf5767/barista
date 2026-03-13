@@ -82,6 +82,29 @@
   .status-dot.ready { background: var(--accent-glow); box-shadow: 0 0 8px rgba(245, 158, 11, 0.5); animation: pulse 2s infinite; }
   .status-dot.error { background: var(--danger); box-shadow: 0 0 8px rgba(239, 68, 68, 0.5); }
 
+  .header-right { display: flex; align-items: center; gap: 12px; }
+
+  .profile-switcher {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 12px; border-radius: 100px;
+    background: var(--bg-card); border: 1px solid var(--border);
+  }
+  .profile-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; }
+  .profile-buttons { display: flex; gap: 4px; }
+  .profile-btn {
+    width: 28px; height: 28px; border-radius: 50%;
+    border: 1px solid var(--border); background: transparent;
+    color: var(--text-muted); font-size: 12px; font-weight: 600;
+    cursor: pointer; transition: all 0.2s; font-family: inherit;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .profile-btn:hover { border-color: rgba(217, 119, 6, 0.4); color: var(--text); }
+  .profile-btn.active {
+    background: var(--accent); border-color: var(--accent);
+    color: white; box-shadow: 0 2px 8px rgba(217, 119, 6, 0.3);
+  }
+  .profile-btn.loading { opacity: 0.5; pointer-events: none; }
+
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 
   /* ── Machine Status Bar ─────────────────────────────── */
@@ -270,6 +293,7 @@
   /* ── Mobile ─────────────────────────────────────────── */
   @media (max-width: 640px) {
     .header { flex-direction: column; gap: 16px; align-items: flex-start; }
+    .header-right { width: 100%; justify-content: space-between; }
     .beverages-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
     .bev-card { padding: 16px 10px 14px; }
     .controls-row { flex-direction: column; }
@@ -289,9 +313,20 @@
         <p>Dinamica Plus Control</p>
       </div>
     </div>
-    <div class="status-badge" id="statusBadge">
-      <span class="status-dot" id="statusDot"></span>
-      <span id="statusText">Connecting...</span>
+    <div class="header-right">
+      <div class="profile-switcher" id="profileSwitcher">
+        <span class="profile-label">Profile</span>
+        <div class="profile-buttons">
+          <button class="profile-btn active" data-profile="1" onclick="switchProfile(1)">1</button>
+          <button class="profile-btn" data-profile="2" onclick="switchProfile(2)">2</button>
+          <button class="profile-btn" data-profile="3" onclick="switchProfile(3)">3</button>
+          <button class="profile-btn" data-profile="4" onclick="switchProfile(4)">4</button>
+        </div>
+      </div>
+      <div class="status-badge" id="statusBadge">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusText">Connecting...</span>
+      </div>
     </div>
   </header>
 
@@ -389,38 +424,101 @@
   const logEntries = [];
 
   // ── Beverage Catalog ────────────────────────────────────
+  // Matches De'Longhi app for Dinamica Plus
   const BEVERAGES = [
-    { name: 'espresso',    icon: '\u2615',     label: 'Espresso',        detail: '40ml',  verified: true },
-    { name: 'coffee',      icon: '\u2615',     label: 'Coffee',          detail: '120ml', verified: true },
-    { name: 'long_coffee', icon: '\u2615',     label: 'Long Coffee',     detail: '160ml', verified: true },
-    { name: 'espresso_2x', icon: '\u2615\u2615', label: 'Double Espresso', detail: '80ml',  verified: true },
-    { name: 'doppio_plus', icon: '\ud83d\udcaa', label: 'Doppio+',        detail: '120ml', verified: true },
-    { name: 'americano',   icon: '\ud83c\uddfa\ud83c\uddf8', label: 'Americano', detail: '150ml', verified: true },
-    { name: 'hot_water',   icon: '\ud83d\udca7', label: 'Hot Water',       detail: '250ml', verified: true },
-    { name: 'steam',       icon: '\u2601\ufe0f', label: 'Steam',           detail: '',      verified: true },
+    { name: 'espresso',           icon: '\u2615',     label: 'Espresso' },
+    { name: 'coffee',             icon: '\u2615',     label: 'Coffee' },
+    { name: 'espresso_2x',       icon: '\u2615\u2615', label: '2\u00d7 Espresso' },
+    { name: 'doppio_plus',        icon: '\ud83d\udcaa', label: 'Doppio+' },
+    { name: 'americano',          icon: '\ud83c\uddfa\ud83c\uddf8', label: 'Americano' },
+    { name: 'cappuccino',         icon: '\u2615',     label: 'Cappuccino' },
+    { name: 'latte_macchiato',    icon: '\ud83e\udd5b', label: 'Latte Macchiato' },
+    { name: 'caffe_latte',        icon: '\ud83e\udd5b', label: 'Latte' },
+    { name: 'flat_white',         icon: '\u2615',     label: 'Flat White' },
+    { name: 'espresso_macchiato', icon: '\u2615',     label: 'Espresso Macchiato' },
+    { name: 'hot_milk',           icon: '\ud83e\udd5b', label: 'Steamed Milk' },
+    { name: 'cappuccino_doppio',  icon: '\u2615',     label: 'Cappuccino+' },
+    { name: 'cappuccino_mix',     icon: '\u2615',     label: 'Cappuccino Mix' },
+    { name: 'hot_water',          icon: '\ud83d\udca7', label: 'Hot Water' },
+    { name: 'steam',              icon: '\u2601\ufe0f', label: 'Steam' },
   ];
 
-  const EXTRA_BEVERAGES = [
-    { name: 'cappuccino',       icon: '\u2615',     label: 'Cappuccino',        detail: 'Milk',  verified: false },
-    { name: 'latte_macchiato',  icon: '\ud83e\udd5b', label: 'Latte Macchiato', detail: 'Milk',  verified: false },
-    { name: 'flat_white',       icon: '\u2615',     label: 'Flat White',        detail: 'Milk',  verified: false },
-    { name: 'caffe_latte',      icon: '\ud83e\udd5b', label: 'Caff\u00e8 Latte', detail: 'Milk', verified: false },
-    { name: 'ristretto',        icon: '\u2615',     label: 'Ristretto',         detail: '25ml',  verified: false },
-    { name: 'cortado',          icon: '\u2615',     label: 'Cortado',           detail: 'Milk',  verified: false },
-  ];
+  // Recipes fetched from machine — keyed by beverage name
+  let recipes = {};
 
   // ── Render Beverages ────────────────────────────────────
   function renderBeverages() {
     const grid = document.getElementById('beverageGrid');
-    const all = [...BEVERAGES, ...EXTRA_BEVERAGES];
-    grid.innerHTML = all.map(b => `
-      <div class="bev-card" id="bev-${b.name}" onclick="brew('${b.name}', '${b.label}', '${b.icon}', this)">
-        ${b.verified ? '<span class="bev-badge">VERIFIED</span>' : ''}
-        <span class="bev-icon">${b.icon}</span>
-        <div class="bev-name">${b.label}</div>
-        <div class="bev-detail">${b.detail}</div>
-      </div>
-    `).join('');
+    grid.innerHTML = BEVERAGES.map(b => {
+      const recipe = recipes[b.name];
+      const detail = formatRecipe(recipe);
+      return `
+        <div class="bev-card" id="bev-${b.name}" onclick="brew('${b.name}', '${b.label}', '${b.icon}', this)">
+          ${recipe ? '<span class="bev-badge">PROFILE</span>' : ''}
+          <span class="bev-icon">${b.icon}</span>
+          <div class="bev-name">${b.label}</div>
+          <div class="bev-detail">${detail}</div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function formatRecipe(recipe) {
+    if (!recipe || !recipe.display) return '';
+    const d = recipe.display;
+    const parts = [];
+    if (d.coffee_ml) parts.push(d.coffee_ml + 'ml');
+    if (d.taste) parts.push(d.taste);
+    if (d.milk_seconds) parts.push((d.milk_seconds / 10).toFixed(0) + 's milk');
+    if (d.hot_water_ml) parts.push(d.hot_water_ml + 'ml water');
+    return parts.join(' \u00b7 ');
+  }
+
+  async function fetchRecipes() {
+    try {
+      const res = await fetch(API + '/api/recipes');
+      const data = await res.json();
+      recipes = data.recipes || {};
+      updateProfileButtons(data.profile || 1);
+      renderBeverages();
+    } catch (e) {
+      // Will retry on next poll
+    }
+  }
+
+  // ── Profile Switching ──────────────────────────────────────
+  let currentProfile = 1;
+
+  async function switchProfile(profileId) {
+    if (profileId === currentProfile) return;
+
+    const btns = document.querySelectorAll('.profile-btn');
+    btns.forEach(b => b.classList.add('loading'));
+
+    addLog(`Switching to profile ${profileId}...`, '\ud83d\udd04');
+    showToast(`Switching to profile ${profileId}...`, 'info');
+
+    const data = await apiCall('/api/profile', 'POST', { profile_id: profileId });
+
+    btns.forEach(b => b.classList.remove('loading'));
+
+    if (data && data.success) {
+      currentProfile = profileId;
+      updateProfileButtons(profileId);
+      await fetchRecipes();
+      showToast(`Profile ${profileId} active \u2014 ${data.recipes_loaded} recipes loaded`, 'success');
+      addLog(`Profile ${profileId} active`, '\u2705');
+    } else {
+      showToast('Profile switch failed', 'error');
+    }
+  }
+
+  function updateProfileButtons(activeProfile) {
+    currentProfile = activeProfile;
+    document.querySelectorAll('.profile-btn').forEach(btn => {
+      const pid = parseInt(btn.dataset.profile);
+      btn.classList.toggle('active', pid === activeProfile);
+    });
   }
 
   // ── API Call ────────────────────────────────────────────
@@ -637,6 +735,7 @@
   // ── Init ────────────────────────────────────────────────
   renderBeverages();
   pollStatus();
+  fetchRecipes();
   addLog('UI loaded', '\ud83d\ude80');
   pollTimer = setInterval(pollStatus, 4000);
 

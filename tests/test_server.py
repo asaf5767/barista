@@ -56,9 +56,9 @@ class TestServerEndpoints:
         assert "beverages" in data
         assert len(data["beverages"]) > 0
 
-        # Verified beverages should be marked
+        # Verified beverages should be marked (7 of 15 Dinamica beverages have verified commands)
         verified = [b for b in data["beverages"] if b.get("verified")]
-        assert len(verified) >= 8
+        assert len(verified) >= 7
 
         # Check espresso is in list
         names = [b["name"] for b in data["beverages"]]

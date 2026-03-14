@@ -55,6 +55,8 @@ logger = logging.getLogger("delonghi.server")
 
 machine = DelonghiBLE()
 PORT = 8080
+BIND_HOST = "127.0.0.1"
+CORS_ORIGIN = "http://localhost:8080"  # Updated at startup; never wildcard
 MACHINE_ADDRESS = None
 START_TIME = time.time()
 
@@ -139,7 +141,7 @@ def json_response(data: dict, status: int = 200) -> web.Response:
         text=json.dumps(data, indent=2),
         content_type="application/json",
         status=status,
-        headers={"Access-Control-Allow-Origin": "*"},
+        headers={"Access-Control-Allow-Origin": CORS_ORIGIN},
     )
 
 
@@ -151,10 +153,11 @@ def _require_connected() -> Optional[web.Response]:
 
 
 async def _parse_body(request: web.Request) -> dict:
-    """Safely parse JSON body, defaulting to empty dict."""
+    """Safely parse JSON body, defaulting to empty dict on missing/malformed input."""
     try:
         return await request.json()
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Could not parse JSON body: {e}")
         return {}
 
 
@@ -283,8 +286,20 @@ async def handle_brew(request: web.Request) -> web.Response:
     # Final fallback to computed command with defaults
     defaults = BEVERAGE_DEFAULTS.get(bev_id, {"quantity_ml": 100, "aroma": Aroma.NORMAL})
     quantity = body.get("quantity_ml", defaults["quantity_ml"])
-    aroma = Aroma(body.get("aroma", defaults["aroma"]))
-    temp = Temperature(body.get("temperature", Temperature.HIGH))
+    try:
+        quantity = int(quantity)
+        if not (0 <= quantity <= 500):
+            return json_response({"error": "quantity_ml must be between 0 and 500"}, 400)
+    except (TypeError, ValueError):
+        return json_response({"error": "quantity_ml must be an integer"}, 400)
+    try:
+        aroma = Aroma(body.get("aroma", defaults["aroma"]))
+    except (ValueError, KeyError):
+        return json_response({"error": f"Invalid aroma value. Valid values: {[e.value for e in Aroma]}"}, 400)
+    try:
+        temp = Temperature(body.get("temperature", Temperature.HIGH))
+    except (ValueError, KeyError):
+        return json_response({"error": f"Invalid temperature value. Valid values: {[e.value for e in Temperature]}"}, 400)
 
     cmd = cmd_brew(bev_id, quantity_ml=quantity, aroma=aroma, temperature=temp)
     ok = await machine.send(cmd)
@@ -333,6 +348,12 @@ async def handle_hot_water(request: web.Request) -> web.Response:
         return err
     body = await _parse_body(request)
     quantity = body.get("quantity_ml", 250)
+    try:
+        quantity = int(quantity)
+        if not (0 <= quantity <= 500):
+            return json_response({"error": "quantity_ml must be between 0 and 500"}, 400)
+    except (TypeError, ValueError):
+        return json_response({"error": "quantity_ml must be an integer"}, 400)
     ok = await machine.send(cmd_hot_water(quantity))
     return json_response({"success": ok, "action": "hot_water", "quantity_ml": quantity})
 
@@ -345,6 +366,12 @@ async def handle_profile(request: web.Request) -> web.Response:
     global current_profile
     body = await _parse_body(request)
     profile_id = body.get("profile_id", 1)
+    try:
+        profile_id = int(profile_id)
+        if not (1 <= profile_id <= 4):
+            return json_response({"error": "profile_id must be between 1 and 4"}, 400)
+    except (TypeError, ValueError):
+        return json_response({"error": "profile_id must be an integer"}, 400)
 
     ok = await machine.send(cmd_profile_select(profile_id))
     if ok:
@@ -444,17 +471,33 @@ async def handle_cors(request: web.Request) -> web.Response:
     return web.Response(
         status=200,
         headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+            "Access-Control-Allow-Origin": CORS_ORIGIN,
+            "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
             "Access-Control-Allow-Headers": "Content-Type",
         },
     )
 
 
+# ── Security Middleware ────────────────────────────────────────────────────────
+
+@web.middleware
+async def security_headers_middleware(request: web.Request, handler):
+    """Add security headers to every response."""
+    response = await handler(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "no-referrer")
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'",
+    )
+    return response
+
+
 # ── Server Setup ──────────────────────────────────────────────────────────────
 
 def create_app() -> web.Application:
-    app = web.Application()
+    app = web.Application(middlewares=[security_headers_middleware])
 
     # Web UI
     app.router.add_get("/", handle_ui)
@@ -510,10 +553,12 @@ async def cmd_scan():
     print(f"  python server.py serve --address {devices[0]['address']}")
 
 
-async def cmd_serve(address: str, port: int = 8080):
+async def cmd_serve(address: str, port: int = 8080, bind_host: str = "127.0.0.1"):
     """Connect to machine and start HTTP server."""
-    global MACHINE_ADDRESS
+    global MACHINE_ADDRESS, BIND_HOST, CORS_ORIGIN
     MACHINE_ADDRESS = address
+    BIND_HOST = bind_host
+    CORS_ORIGIN = f"http://localhost:{port}"
 
     print(f"\nConnecting to {address}...")
 
@@ -550,16 +595,18 @@ async def cmd_serve(address: str, port: int = 8080):
 
     print(f"\n{'='*60}")
     print(f"  De'Longhi Coffee Machine Control")
-    print(f"  Web UI:  http://localhost:{port}")
-    print(f"  API:     http://localhost:{port}/api")
+    print(f"  Web UI:  http://{BIND_HOST}:{port}")
+    print(f"  API:     http://{BIND_HOST}:{port}/api")
     print(f"  Profile: {current_profile} ({len(recipe_cache)} recipes loaded)")
+    if BIND_HOST != "127.0.0.1":
+        print(f"  WARNING: Server is bound to {BIND_HOST} (accessible on network)")
     print(f"{'='*60}")
     print(f"\n  Press Ctrl+C to stop\n")
 
     app = create_app()
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", port)
+    site = web.TCPSite(runner, BIND_HOST, port)
     await site.start()
 
     try:

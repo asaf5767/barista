@@ -54,8 +54,8 @@ class DelonghiBLE:
         for cb in self._connection_listeners:
             try:
                 cb(connected)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(f"Connection listener error: {e}")
 
     # ── Scanning ──────────────────────────────────────────────────────────────
 

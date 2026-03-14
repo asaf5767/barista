@@ -431,11 +431,12 @@ def _check_alarms(machine) -> Optional[str]:
 # ── HTTP Handlers ──────────────────────────────────────────────────────────────
 
 def _json_response(data: dict, status: int = 200) -> web.Response:
+    from barista.server import CORS_ORIGIN
     return web.Response(
         text=json.dumps(data, indent=2, default=str),
         content_type="application/json",
         status=status,
-        headers={"Access-Control-Allow-Origin": "*"},
+        headers={"Access-Control-Allow-Origin": CORS_ORIGIN},
     )
 
 

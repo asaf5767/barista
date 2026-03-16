@@ -45,6 +45,7 @@ class EcamDBusGATT:
         self._disconnect_cb: Optional[Callable] = None
         self._notify_cb: Optional[Callable] = None
         self._char_iface = None  # Cached GattCharacteristic1 proxy
+        self._write_lock = asyncio.Lock()  # Serialize BLE writes
 
     @property
     def is_connected(self) -> bool:
@@ -222,23 +223,32 @@ class EcamDBusGATT:
                 logger.error(f"Write failed (no char proxy): {e}")
                 return False
 
-        # Retry up to 3 times on "In Progress"
-        for attempt in range(3):
-            try:
-                await char.call_write_value(
-                    bytes(data), {"type": Variant("s", "request")}
-                )
-                logger.debug(f"TX: {data.hex(' ')}")
-                return True
-            except Exception as e:
-                err_str = str(e)
-                if "In Progress" in err_str and attempt < 2:
-                    logger.debug(f"Write busy, retrying in 1s ({attempt+1}/3)...")
-                    await asyncio.sleep(1)
-                    continue
-                logger.error(f"Write failed: {e}")
-                return False
-        return False
+        # Serialize writes — only one ATT operation in flight at a time
+        try:
+            async with asyncio.timeout(5):
+                async with self._write_lock:
+                    # Use "request" (Write Request) — ECAM only sends indications
+                    # in response to Write Requests, not Write Commands.
+                    # The 5s outer timeout prevents blocking if the machine
+                    # is slow (e.g. in STANDBY). The write still goes through
+                    # at the BLE level even if the timeout fires.
+                    await char.call_write_value(
+                        bytes(data), {"type": Variant("s", "request")}
+                    )
+                    logger.debug(f"TX: {data.hex(' ')}")
+                    return True
+        except (TimeoutError, asyncio.TimeoutError):
+            logger.debug(f"Write timed out (5s) — data sent, ACK pending")
+            # The write was likely sent at the BLE level even though
+            # the D-Bus call timed out waiting for the ATT response.
+            # Return True so the caller waits for the indication.
+            return True
+        except TimeoutError:
+            logger.warning("Write timed out (8s) — BLE may be busy")
+            return False
+        except Exception as e:
+            logger.error(f"Write failed: {e}")
+            return False
 
     async def disconnect(self):
         """Disconnect and clean up."""

@@ -427,16 +427,23 @@ async def handle_scan(request: web.Request) -> web.Response:
 
 
 async def handle_reconnect(request: web.Request) -> web.Response:
-    """POST /api/reconnect — Force reconnect to machine."""
-    if MACHINE_ADDRESS:
-        await machine.disconnect()
-        machine._auto_reconnect = True
-        ok = await machine.connect(MACHINE_ADDRESS)
-        if ok:
-            # Re-fetch recipes after reconnecting
-            await fetch_all_recipes(current_profile)
-        return json_response({"success": ok, "connected": machine.connected})
-    return json_response({"error": "No machine address configured"}, 400)
+    """POST /api/reconnect — Force reconnect to machine.
+
+    On Pi, the most reliable reconnect is a full service restart since the
+    ECAM's BLE GATT resolution is fragile. If already connected, this is a no-op.
+    """
+    if not MACHINE_ADDRESS:
+        return json_response({"error": "No machine address configured"}, 400)
+
+    if machine.connected:
+        return json_response({"success": True, "connected": True, "note": "already connected"})
+
+    # Try connecting (auto-reconnect loop may already be handling this)
+    machine._auto_reconnect = True
+    ok = await machine.connect(MACHINE_ADDRESS)
+    if ok:
+        await fetch_all_recipes(current_profile)
+    return json_response({"success": ok, "connected": machine.connected})
 
 
 async def handle_cors(request: web.Request) -> web.Response:

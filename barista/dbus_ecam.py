@@ -44,6 +44,7 @@ class EcamDBusGATT:
         self._connected = False
         self._disconnect_cb: Optional[Callable] = None
         self._notify_cb: Optional[Callable] = None
+        self._char_iface = None  # Cached GattCharacteristic1 proxy
 
     @property
     def is_connected(self) -> bool:
@@ -63,34 +64,11 @@ class EcamDBusGATT:
             logger.error(f"D-Bus connection failed: {e}")
             return False
 
-        # Step 1: Ensure device is connected
+        # Step 1: Ensure device exists in BlueZ (scan if needed)
         try:
             dev_intro = await self._bus.introspect(BLUEZ, self._dev_path)
-            dev_obj = self._bus.get_proxy_object(BLUEZ, self._dev_path, dev_intro)
-            dev = dev_obj.get_interface(DEVICE_IFACE)
-            dev_props = dev_obj.get_interface(PROPS_IFACE)
-
-            connected = await dev_props.call_get(DEVICE_IFACE, "Connected")
-            if not connected.value:
-                logger.info("Calling Connect()...")
-                try:
-                    await asyncio.wait_for(dev.call_connect(), timeout=15)
-                except asyncio.TimeoutError:
-                    logger.warning("Connect() timed out, checking state...")
-                except Exception as e:
-                    logger.warning(f"Connect(): {e}")
-
-                await asyncio.sleep(2)
-                connected = await dev_props.call_get(DEVICE_IFACE, "Connected")
-                if not connected.value:
-                    logger.error("Device not connected after Connect()")
-                    return False
-
-            logger.info("BLE link established")
-        except Exception as e:
-            logger.error(f"Device not found in BlueZ: {e}")
-            logger.info("Scanning for device first...")
-            # Need to scan first so BlueZ knows about the device
+        except Exception:
+            logger.info("Device not in BlueZ, scanning...")
             try:
                 from bleak import BleakScanner
                 device = await BleakScanner.find_device_by_address(
@@ -100,66 +78,93 @@ class EcamDBusGATT:
                     logger.error("Device not found in scan")
                     return False
                 logger.info(f"Found: {device.name}")
-
-                # Now try Connect() again
                 dev_intro = await self._bus.introspect(BLUEZ, self._dev_path)
-                dev_obj = self._bus.get_proxy_object(BLUEZ, self._dev_path, dev_intro)
-                dev = dev_obj.get_interface(DEVICE_IFACE)
-                dev_props = dev_obj.get_interface(PROPS_IFACE)
+            except Exception as e:
+                logger.error(f"Scan + introspect failed: {e}")
+                return False
 
+        dev_obj = self._bus.get_proxy_object(BLUEZ, self._dev_path, dev_intro)
+        dev = dev_obj.get_interface(DEVICE_IFACE)
+        dev_props = dev_obj.get_interface(PROPS_IFACE)
+
+        # Step 2: Disconnect if lingering, then reconnect clean
+        try:
+            connected = await dev_props.call_get(DEVICE_IFACE, "Connected")
+            if connected.value:
+                logger.info("Disconnecting stale BLE link...")
                 try:
-                    await asyncio.wait_for(dev.call_connect(), timeout=15)
+                    await asyncio.wait_for(dev.call_disconnect(), timeout=5)
                 except Exception:
                     pass
                 await asyncio.sleep(2)
+        except Exception:
+            pass
 
-                connected = await dev_props.call_get(DEVICE_IFACE, "Connected")
-                if not connected.value:
-                    logger.error("Still not connected")
-                    return False
-                logger.info("Connected after scan")
-            except Exception as e2:
-                logger.error(f"Scan + connect failed: {e2}")
+        # Step 3: Connect
+        logger.info("Calling Connect()...")
+        try:
+            await asyncio.wait_for(dev.call_connect(), timeout=15)
+        except asyncio.TimeoutError:
+            logger.warning("Connect() timed out, checking state...")
+        except Exception as e:
+            logger.warning(f"Connect(): {e}")
+
+        await asyncio.sleep(2)
+        try:
+            connected = await dev_props.call_get(DEVICE_IFACE, "Connected")
+            if not connected.value:
+                logger.error("Device not connected after Connect()")
                 return False
+        except Exception as e:
+            logger.error(f"Could not verify connection: {e}")
+            return False
 
-        # Step 2: Force GATT service resolution via ConnectProfile
+        logger.info("BLE link established")
+
+        # Step 4: Force GATT service resolution via ConnectProfile
+        # This is the workaround for ECAM firmware that doesn't respond
+        # to standard ATT service discovery.
         resolved = await dev_props.call_get(DEVICE_IFACE, "ServicesResolved")
         if not resolved.value:
             logger.info("Triggering GATT resolution via ConnectProfile...")
-            try:
-                await asyncio.wait_for(
-                    dev.call_connect_profile(ECAM_SERVICE_UUID), timeout=15
-                )
-            except Exception as e:
-                logger.debug(f"ConnectProfile result: {e} (expected)")
-
-            # Check resolution
-            await asyncio.sleep(1)
-            resolved = await dev_props.call_get(DEVICE_IFACE, "ServicesResolved")
-            if not resolved.value:
-                # Try again
-                logger.warning("Services not resolved, retrying ConnectProfile...")
+            for attempt in range(3):
                 try:
                     await asyncio.wait_for(
-                        dev.call_connect_profile(ECAM_SERVICE_UUID), timeout=10
+                        dev.call_connect_profile(ECAM_SERVICE_UUID), timeout=15
                     )
-                except Exception:
-                    pass
-                await asyncio.sleep(1)
-                resolved = await dev_props.call_get(DEVICE_IFACE, "ServicesResolved")
+                except Exception as e:
+                    logger.debug(f"ConnectProfile attempt {attempt+1}: {e} (expected)")
 
-            if not resolved.value:
-                logger.error("GATT services never resolved!")
-                return False
+                # Wait and check — resolution can take up to 15s
+                for wait_s in range(15):
+                    await asyncio.sleep(1)
+                    try:
+                        resolved = await dev_props.call_get(DEVICE_IFACE, "ServicesResolved")
+                        if resolved.value:
+                            logger.info(f"Services resolved after {wait_s+1}s!")
+                            break
+                    except Exception:
+                        pass
+                else:
+                    # Didn't resolve in this attempt
+                    if attempt < 2:
+                        logger.warning(f"ConnectProfile attempt {attempt+1} didn't resolve, retrying...")
+                        continue
+                    logger.error("GATT services never resolved after 3 attempts!")
+                    return False
+                break  # resolved!
 
         logger.info("GATT services resolved!")
 
-        # Step 3: Set up notification listener
+        # Step 5: Set up notification listener
         try:
             char_intro = await self._bus.introspect(BLUEZ, self._char_path)
             char_obj = self._bus.get_proxy_object(BLUEZ, self._char_path, char_intro)
             char = char_obj.get_interface(GATT_CHAR_IFACE)
             char_props = char_obj.get_interface(PROPS_IFACE)
+
+            # Cache for writes
+            self._char_iface = char
 
             # D-Bus PropertiesChanged signal handler
             def on_props_changed(iface, changed, invalidated):
@@ -177,11 +182,14 @@ class EcamDBusGATT:
             await char.call_start_notify()
             logger.info("StartNotify OK — listening for indications")
 
+            # Wait for GATT to settle after StartNotify
+            await asyncio.sleep(2)
+
         except Exception as e:
             logger.error(f"Notification setup failed: {e}")
             return False
 
-        # Step 4: Watch for disconnection
+        # Step 6: Watch for disconnection
         def on_dev_changed(iface, changed, invalidated):
             if iface == DEVICE_IFACE and "Connected" in changed:
                 val = changed["Connected"]
@@ -203,29 +211,52 @@ class EcamDBusGATT:
         if not self._bus or not self._connected:
             return False
 
-        try:
-            char_intro = await self._bus.introspect(BLUEZ, self._char_path)
-            char_obj = self._bus.get_proxy_object(BLUEZ, self._char_path, char_intro)
-            char = char_obj.get_interface(GATT_CHAR_IFACE)
+        char = self._char_iface
+        if not char:
+            try:
+                char_intro = await self._bus.introspect(BLUEZ, self._char_path)
+                char_obj = self._bus.get_proxy_object(BLUEZ, self._char_path, char_intro)
+                char = char_obj.get_interface(GATT_CHAR_IFACE)
+                self._char_iface = char
+            except Exception as e:
+                logger.error(f"Write failed (no char proxy): {e}")
+                return False
 
-            await char.call_write_value(
-                bytes(data), {"type": Variant("s", "request")}
-            )
-            logger.debug(f"TX: {data.hex(' ')}")
-            return True
-        except Exception as e:
-            logger.error(f"Write failed: {e}")
-            return False
+        # Retry up to 3 times on "In Progress"
+        for attempt in range(3):
+            try:
+                await char.call_write_value(
+                    bytes(data), {"type": Variant("s", "request")}
+                )
+                logger.debug(f"TX: {data.hex(' ')}")
+                return True
+            except Exception as e:
+                err_str = str(e)
+                if "In Progress" in err_str and attempt < 2:
+                    logger.debug(f"Write busy, retrying in 1s ({attempt+1}/3)...")
+                    await asyncio.sleep(1)
+                    continue
+                logger.error(f"Write failed: {e}")
+                return False
+        return False
 
     async def disconnect(self):
         """Disconnect and clean up."""
         self._connected = False
         if self._bus:
             try:
+                # Stop notifications first
+                char_intro = await self._bus.introspect(BLUEZ, self._char_path)
+                char_obj = self._bus.get_proxy_object(BLUEZ, self._char_path, char_intro)
+                char = char_obj.get_interface(GATT_CHAR_IFACE)
+                await char.call_stop_notify()
+            except Exception:
+                pass
+            try:
                 dev_intro = await self._bus.introspect(BLUEZ, self._dev_path)
                 dev_obj = self._bus.get_proxy_object(BLUEZ, self._dev_path, dev_intro)
                 dev = dev_obj.get_interface(DEVICE_IFACE)
-                await dev.call_disconnect()
+                await asyncio.wait_for(dev.call_disconnect(), timeout=5)
             except Exception:
                 pass
             try:

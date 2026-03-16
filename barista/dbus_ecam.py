@@ -207,8 +207,16 @@ class EcamDBusGATT:
         logger.info("ECAM D-Bus GATT driver ready!")
         return True
 
-    async def write(self, data: bytes) -> bool:
-        """Write a command to the ECAM control characteristic."""
+    async def write(self, data: bytes, allow_skip: bool = False) -> bool:
+        """Write a command to the ECAM control characteristic.
+
+        Args:
+            data: Raw ECAM protocol packet to send.
+            allow_skip: If True, use Write Without Response (non-blocking).
+                        Used for background monitor polls that shouldn't block
+                        the BLE channel. User commands use Write Request to
+                        ensure the machine processes them.
+        """
         if not self._bus or not self._connected:
             return False
 
@@ -223,29 +231,33 @@ class EcamDBusGATT:
                 logger.error(f"Write failed (no char proxy): {e}")
                 return False
 
-        # Serialize writes — only one ATT operation in flight at a time
-        try:
-            async with asyncio.timeout(5):
+        # Background polls: skip if busy, use Write Without Response
+        if allow_skip:
+            if self._write_lock.locked():
+                return False
+            try:
                 async with self._write_lock:
-                    # Use "request" (Write Request) — ECAM only sends indications
-                    # in response to Write Requests, not Write Commands.
-                    # The 5s outer timeout prevents blocking if the machine
-                    # is slow (e.g. in STANDBY). The write still goes through
-                    # at the BLE level even if the timeout fires.
+                    await char.call_write_value(
+                        bytes(data), {"type": Variant("s", "command")}
+                    )
+                    logger.debug(f"TX (poll): {data.hex(' ')}")
+                    return True
+            except Exception as e:
+                logger.debug(f"Poll write skipped: {e}")
+                return False
+
+        # User commands: use Write Request (blocks until machine ACKs)
+        try:
+            async with asyncio.timeout(15):
+                async with self._write_lock:
                     await char.call_write_value(
                         bytes(data), {"type": Variant("s", "request")}
                     )
                     logger.debug(f"TX: {data.hex(' ')}")
                     return True
         except (TimeoutError, asyncio.TimeoutError):
-            logger.debug(f"Write timed out (5s) — data sent, ACK pending")
-            # The write was likely sent at the BLE level even though
-            # the D-Bus call timed out waiting for the ATT response.
-            # Return True so the caller waits for the indication.
-            return True
-        except TimeoutError:
-            logger.warning("Write timed out (8s) — BLE may be busy")
-            return False
+            logger.debug("Write timed out (15s)")
+            return True  # data likely sent
         except Exception as e:
             logger.error(f"Write failed: {e}")
             return False

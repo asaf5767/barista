@@ -239,7 +239,7 @@ class DelonghiBLE:
 
     # ── Sending Commands ──────────────────────────────────────────────────────
 
-    async def send(self, data: bytes) -> bool:
+    async def send(self, data: bytes, allow_skip: bool = False) -> bool:
         is_connected = False
         if self._ecam:
             is_connected = self._ecam.is_connected
@@ -265,7 +265,7 @@ class DelonghiBLE:
         try:
             logger.debug(f"TX: {data.hex(' ')}")
             if self._ecam:
-                return await self._ecam.write(data)
+                return await self._ecam.write(data, allow_skip=allow_skip)
             elif self.client:
                 await self.client.write_gatt_char(
                     CONTROL_CHARACTERISTIC_UUID, data, response=True,
@@ -321,7 +321,7 @@ class DelonghiBLE:
             while True:
                 if self.connected:
                     try:
-                        await self.send(cmd_monitor())
+                        await self.send(cmd_monitor(), allow_skip=True)
                     except Exception as e:
                         logger.error(f"Monitor poll error: {e}")
                 elif self._auto_reconnect and self._address and not self._reconnecting:

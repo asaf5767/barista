@@ -24,7 +24,7 @@ Ingredients use variable-length encoding:
 Milk values from the machine are in **tenths of seconds** (e.g., 310 = 31.0 sec).
 
 ### Beverage Discovery
-- Cappuccino Mix = beverage ID `0x0F` (CappuccinoReverse in longshot — confirmed working on Dinamica Plus)
+- Cappuccino Mix = beverage ID `0x0F` (milk-first cappuccino — confirmed working on Dinamica Plus)
 - Cortado (`0x18`) is NOT available on the Dinamica Plus
 - The `DINAMICA_BEVERAGES` list in protocol.py defines which beverages appear in the UI
 
@@ -40,5 +40,4 @@ curl http://localhost:8080/api/recipes   # Check cached recipes
 ```
 
 ## Reference Implementations
-- [mmastrac/longshot](https://github.com/mmastrac/longshot) — Rust ECAM CLI (primary protocol reference)
 - [Arbuzov/home_assistant_delonghi_primadonna](https://github.com/Arbuzov/home_assistant_delonghi_primadonna) — HA integration (verified command bytes)

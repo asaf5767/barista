@@ -4,7 +4,7 @@ BLE-to-HTTP bridge with a stunning control interface.
 
 Usage:
     python server.py scan                    # Find your machine
-    python server.py serve --address XX:XX   # Start HTTP server + UI
+    barista start --address XX:XX            # Start HTTP server + UI
 """
 
 import asyncio
@@ -507,7 +507,7 @@ async def cmd_scan():
         print()
 
     print("To start the server, run:")
-    print(f"  python server.py serve --address {devices[0]['address']}")
+    print(f"  barista start --address {devices[0]['address']}")
 
 
 async def cmd_serve(address: str, port: int = 8080):

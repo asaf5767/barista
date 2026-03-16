@@ -1,7 +1,6 @@
 """
 De'Longhi ECAM Bluetooth Protocol Implementation
 Reverse-engineered from:
-  - mmastrac/longshot (Rust)
   - Arbuzov/home_assistant_delonghi_primadonna (Python/HA)
   - manekinekko/cafy (TypeScript)
 """

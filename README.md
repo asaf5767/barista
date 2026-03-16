@@ -139,6 +139,8 @@ All endpoints return JSON. Use from any language, any automation platform.
 | `POST` | `/api/hot-water` | Dispense hot water |
 | `POST` | `/api/profile` | Select user profile (1-4) |
 | `GET` | `/api/beverages` | List available drinks |
+| `GET` | `/api/recipes` | List cached beverage recipes |
+| `POST` | `/api/recipes/refresh` | Re-fetch recipes from machine |
 | `GET` | `/api/scan` | Scan for BLE machines |
 | `POST` | `/api/reconnect` | Force BLE reconnect |
 
@@ -155,7 +157,7 @@ All endpoints return JSON. Use from any language, any automation platform.
 
 | Parameter | Values |
 |-----------|--------|
-| `beverage` | `espresso`, `coffee`, `long_coffee`, `espresso_2x`, `doppio_plus`, `americano`, `cappuccino`, `latte_macchiato`, `flat_white`, `caffe_latte`, `hot_water`, `steam`, `ristretto`, `cortado`, ... |
+| `beverage` | `espresso`, `coffee`, `long_coffee`, `espresso_2x`, `doppio_plus`, `americano`, `cappuccino`, `latte_macchiato`, `flat_white`, `caffe_latte`, `hot_water`, `steam`, `ristretto`, ... |
 | `aroma` | `1` (extra mild) → `5` (extra strong) |
 | `temperature` | `0` (low) → `3` (very high) |
 | `quantity_ml` | Depends on beverage (e.g., 25-250) |
@@ -334,7 +336,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 The ECAM Bluetooth protocol was decoded thanks to the work of the open-source community:
 
-- [mmastrac/longshot](https://github.com/mmastrac/longshot) — Rust ECAM CLI/API with comprehensive protocol enums
 - [Arbuzov/home_assistant_delonghi_primadonna](https://github.com/Arbuzov/home_assistant_delonghi_primadonna) — Home Assistant integration with verified command bytes
 - [manekinekko/cafy](https://github.com/manekinekko/cafy) — TypeScript implementation with BLE packet documentation
 

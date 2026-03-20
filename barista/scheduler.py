@@ -354,24 +354,38 @@ async def _execute_brew_sequence(schedule: dict):
                     continue
                 bev_id = BeverageId(names[bev_name])
 
-                # Fetch recipe from machine
+                # Strategy: use cached recipe first (from fetch_all_recipes),
+                # then try BLE fetch, then fall back to verified commands.
+                # This avoids BLE contention that causes "In Progress" errors.
                 recipe = None
-                if state.fetch_recipe_fn:
-                    recipe = await state.fetch_recipe_fn(bev_id, profile)
+
+                # 1. Check server's recipe cache (already populated in Step 4)
+                from barista.server import recipe_cache
+                cached = recipe_cache.get(bev_name)
+                if cached:
+                    recipe = cached
+                    blog.info(f"Using cached recipe for {bev_label}")
+
+                # 2. Try BLE fetch if no cache
+                if not recipe and state.fetch_recipe_fn:
+                    try:
+                        recipe = await state.fetch_recipe_fn(bev_id, profile)
+                    except Exception as e:
+                        blog.warning(f"BLE recipe fetch failed for {bev_label}: {e}")
 
                 if recipe:
                     cmd = cmd_brew_recipe(bev_id, recipe)
                     ok = await machine.send(cmd)
                     if ok:
-                        blog.info(f"Brew command sent for {bev_label} (profile recipe)")
+                        blog.info(f"Brew command sent for {bev_label} (recipe)")
                     else:
                         blog.error(f"Failed to send brew command for {bev_label}")
                         continue
                 else:
-                    # Fallback: use verified/hardcoded command
+                    # 3. Fallback: use verified/hardcoded command
                     verified = cmd_brew_verified(bev_name)
                     if verified:
-                        blog.info(f"No profile recipe for {bev_label}, using verified command")
+                        blog.info(f"No recipe for {bev_label}, using verified command")
                         ok = await machine.send(verified)
                         if ok:
                             blog.info(f"Verified brew command sent for {bev_label}")

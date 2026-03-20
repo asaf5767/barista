@@ -256,8 +256,8 @@ class EcamDBusGATT:
                     logger.debug(f"TX: {data.hex(' ')}")
                     return True
         except (TimeoutError, asyncio.TimeoutError):
-            logger.debug("Write timed out (15s)")
-            return True  # data likely sent
+            logger.warning("Write timed out (15s) — command may not have been sent")
+            return False
         except Exception as e:
             logger.error(f"Write failed: {e}")
             return False

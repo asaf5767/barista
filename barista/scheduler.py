@@ -375,31 +375,65 @@ async def _execute_brew_sequence(schedule: dict):
 
                 if recipe:
                     cmd = cmd_brew_recipe(bev_id, recipe)
-                    ok = await machine.send(cmd)
-                    if ok:
-                        blog.info(f"Brew command sent for {bev_label} (recipe)")
-                    else:
-                        blog.error(f"Failed to send brew command for {bev_label}")
+                    # Retry brew command up to 3 times — BLE can be flaky
+                    brew_sent = False
+                    for attempt in range(1, 4):
+                        ok = await machine.send(cmd)
+                        if ok:
+                            blog.info(f"Brew command sent for {bev_label} (recipe, attempt {attempt})")
+                            brew_sent = True
+                            break
+                        blog.warning(f"Brew send failed for {bev_label}, attempt {attempt}/3")
+                        await asyncio.sleep(3)
+
+                    if not brew_sent:
+                        blog.error(f"Failed to send brew after 3 attempts for {bev_label}")
                         continue
                 else:
                     # 3. Fallback: use verified/hardcoded command
                     verified = cmd_brew_verified(bev_name)
                     if verified:
                         blog.info(f"No recipe for {bev_label}, using verified command")
-                        ok = await machine.send(verified)
-                        if ok:
-                            blog.info(f"Verified brew command sent for {bev_label}")
-                        else:
+                        brew_sent = False
+                        for attempt in range(1, 4):
+                            ok = await machine.send(verified)
+                            if ok:
+                                blog.info(f"Verified brew sent for {bev_label} (attempt {attempt})")
+                                brew_sent = True
+                                break
+                            await asyncio.sleep(3)
+                        if not brew_sent:
                             blog.error(f"Failed to send verified brew for {bev_label}")
                             continue
                     else:
                         blog.warning(f"No recipe or verified command for {bev_label}, skipping")
                         continue
 
-                # Wait for brew to complete (machine returns to READY)
+                # Wait for machine to leave READY (confirms brew started)
                 update_status(
                     "brewing",
-                    f"Waiting for {bev_label} to finish...",
+                    f"Waiting for {bev_label} to start...",
+                    drink_progress_base + 0.05,
+                )
+                brew_started = await _wait_for_state_change(
+                    machine, from_state="READY", timeout=30, blog=blog
+                )
+                if not brew_started:
+                    blog.warning(f"{bev_label} didn't start — machine stayed READY. Retrying send...")
+                    # One more attempt
+                    ok = await machine.send(cmd if recipe else verified)
+                    if ok:
+                        brew_started = await _wait_for_state_change(
+                            machine, from_state="READY", timeout=30, blog=blog
+                        )
+                    if not brew_started:
+                        blog.error(f"{bev_label} brew never started — skipping")
+                        continue
+
+                # Now wait for brew to complete (machine returns to READY)
+                update_status(
+                    "brewing",
+                    f"Brewing {bev_label}...",
                     drink_progress_base + 0.10,
                 )
                 brew_done = await _wait_for_ready(machine, timeout=300, blog=blog)
@@ -508,6 +542,28 @@ async def _wait_for_ready(machine, timeout: int = 180, blog=None) -> bool:
             blog.warning(f"Status poll error: {e}")
 
         await asyncio.sleep(5)
+
+    return False
+
+
+async def _wait_for_state_change(machine, from_state: str, timeout: int = 30, blog=None) -> bool:
+    """Wait for the machine to leave a specific state (e.g. READY → BREWING).
+
+    Returns True if the machine transitioned away from from_state within timeout.
+    Used to confirm a brew command was actually received by the machine.
+    """
+    if blog is None:
+        blog = _get_brew_logger()
+
+    start = time.time()
+    while time.time() - start < timeout:
+        status = machine.get_last_status()
+        if status:
+            current = status.get("state", "")
+            if current != from_state:
+                blog.info(f"Machine state changed: {from_state} → {current}")
+                return True
+        await asyncio.sleep(2)
 
     return False
 

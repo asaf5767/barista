@@ -388,20 +388,47 @@ async def _execute_brew_sequence(schedule: dict):
 
 
 async def _wait_for_ready(machine, timeout: int = 180, blog=None) -> bool:
-    """Poll machine status until READY state, with timeout."""
+    """Poll machine status until READY state, with timeout.
+
+    Checks for state == READY rather than is_ready, since is_ready also
+    requires zero alarms — and the ECAM often has persistent non-critical
+    alarms like DESCALE_ALARM that don't prevent brewing.
+
+    Uses cached status when available to avoid blocking BLE writes.
+    """
     if blog is None:
         blog = _get_brew_logger()
 
     start = time.time()
     while time.time() - start < timeout:
         try:
-            status = await machine.request_status()
+            # Prefer cached status to avoid blocking BLE with Write Requests
+            status = machine.get_last_status()
+            if not status or machine.get_status_age() > 15:
+                # Cache is stale — request fresh status
+                status = await machine.request_status()
+
             if status:
                 machine_state = status.get("state", "")
                 is_ready = status.get("is_ready", False)
-                blog.debug(f"Machine state: {machine_state}, ready: {is_ready}")
-                if is_ready:
+                alarms = status.get("alarms", [])
+
+                # Check for critical alarms that should abort
+                critical = [a for a in alarms if a in {
+                    "EMPTY_WATER_TANK", "WASTE_CONTAINER_FULL",
+                    "BEANS_EMPTY", "BEANS_EMPTY_2",
+                }]
+                if critical:
+                    blog.error(f"Critical alarm: {critical}")
+                    return False
+
+                blog.debug(f"Machine state: {machine_state}, ready: {is_ready}, alarms: {alarms}")
+
+                # Accept READY state even with non-critical alarms (e.g. DESCALE)
+                if machine_state == "READY":
+                    blog.info(f"Machine is READY! (alarms: {alarms or 'none'})")
                     return True
+
         except Exception as e:
             blog.warning(f"Status poll error: {e}")
 

@@ -31,6 +31,7 @@ from barista.protocol import (
     cmd_profile_select,
     cmd_recipe_read,
     cmd_brew_recipe,
+    cmd_brew_verified,
     cmd_monitor,
     get_beverage_names,
     recipe_to_dict,
@@ -144,13 +145,15 @@ state = SchedulerState()
 # ── Check Loop ─────────────────────────────────────────────────────────────────
 
 async def _scheduler_check_loop():
-    """Runs every 30 seconds. Checks if any schedule should fire."""
+    """Runs every 10 seconds. Checks if any schedule should fire."""
     blog = _get_brew_logger()
+    cleanup_counter = 0
+
     while True:
         try:
             now = datetime.now()
             for schedule in state.schedules:
-                if schedule.get("status") in ("running", "completed", "cancelled"):
+                if schedule.get("status") in ("running", "completed", "cancelled", "error"):
                     continue
                 if not schedule.get("enabled", True):
                     continue
@@ -166,10 +169,42 @@ async def _scheduler_check_loop():
                         _execute_brew_sequence(schedule)
                     )
 
+            # Auto-cleanup old completed/error/cancelled schedules every ~5 min
+            cleanup_counter += 1
+            if cleanup_counter >= 30:  # 30 * 10s = 5 min
+                cleanup_counter = 0
+                _auto_cleanup_schedules()
+
         except Exception as e:
             logger.error(f"Scheduler check error: {e}")
 
-        await asyncio.sleep(30)
+        await asyncio.sleep(10)
+
+
+def _auto_cleanup_schedules():
+    """Remove completed/error/cancelled schedules older than 24 hours."""
+    cutoff = datetime.now() - timedelta(hours=24)
+    original_count = len(state.schedules)
+    state.schedules = [
+        s for s in state.schedules
+        if not (
+            s.get("status") in ("completed", "error", "cancelled")
+            and _parse_datetime(s.get("completed_at") or s.get("created_at", "")) is not None
+            and _parse_datetime(s.get("completed_at") or s.get("created_at", "")) < cutoff
+        )
+    ]
+    removed = original_count - len(state.schedules)
+    if removed > 0:
+        state.save()
+        logger.info(f"Auto-cleaned {removed} old schedule(s)")
+
+
+def _parse_datetime(dt_str: str) -> Optional[datetime]:
+    """Parse ISO datetime string, returning None on failure."""
+    try:
+        return datetime.fromisoformat(dt_str)
+    except (ValueError, TypeError):
+        return None
 
 
 def _parse_trigger(trigger: dict) -> Optional[datetime]:
@@ -230,13 +265,22 @@ async def _execute_brew_sequence(schedule: dict):
                     state.save()
                     return
 
-            ok = await machine.send(cmd_power_on())
-            if not ok:
-                update_status("error", "Failed to send power-on command")
-                schedule["status"] = "error"
-                schedule["error"] = "Power-on send failed"
-                state.save()
-                return
+            # Check if machine is already on (READY or TURNING_ON)
+            status = machine.get_last_status()
+            machine_state = status.get("state", "") if status else ""
+
+            if machine_state == "READY":
+                blog.info("Machine is already READY — skipping power-on")
+            elif machine_state == "TURNING_ON":
+                blog.info("Machine is already turning on — skipping power-on")
+            else:
+                ok = await machine.send(cmd_power_on())
+                if not ok:
+                    update_status("error", "Failed to send power-on command")
+                    schedule["status"] = "error"
+                    schedule["error"] = "Power-on send failed"
+                    state.save()
+                    return
         else:
             blog.info("[DRY RUN] Would send power-on command")
 
@@ -319,13 +363,24 @@ async def _execute_brew_sequence(schedule: dict):
                     cmd = cmd_brew_recipe(bev_id, recipe)
                     ok = await machine.send(cmd)
                     if ok:
-                        blog.info(f"Brew command sent for {bev_label}")
+                        blog.info(f"Brew command sent for {bev_label} (profile recipe)")
                     else:
                         blog.error(f"Failed to send brew command for {bev_label}")
                         continue
                 else:
-                    blog.warning(f"No recipe found for {bev_label}, skipping")
-                    continue
+                    # Fallback: use verified/hardcoded command
+                    verified = cmd_brew_verified(bev_name)
+                    if verified:
+                        blog.info(f"No profile recipe for {bev_label}, using verified command")
+                        ok = await machine.send(verified)
+                        if ok:
+                            blog.info(f"Verified brew command sent for {bev_label}")
+                        else:
+                            blog.error(f"Failed to send verified brew for {bev_label}")
+                            continue
+                    else:
+                        blog.warning(f"No recipe or verified command for {bev_label}, skipping")
+                        continue
 
                 # Wait for brew to complete (machine returns to READY)
                 update_status(
@@ -385,6 +440,12 @@ async def _execute_brew_sequence(schedule: dict):
     finally:
         state.active_schedule_id = None
         state.active_task = None
+        # Keep execution_status for 60s so UI can show final state,
+        # then clear it on next poll
+        if state.execution_status.get("step") in ("completed", "error"):
+            asyncio.get_running_loop().call_later(
+                60, lambda: state.execution_status.clear()
+            )
 
 
 async def _wait_for_ready(machine, timeout: int = 180, blog=None) -> bool:
@@ -599,6 +660,26 @@ async def handle_schedule_cancel_active(request: web.Request) -> web.Response:
     return _json_response({"success": True, "message": "Cancelling active brew..."})
 
 
+async def handle_schedule_clear(request: web.Request) -> web.Response:
+    """POST /api/schedule/clear — Remove all completed/error/cancelled schedules."""
+    original = len(state.schedules)
+    state.schedules = [
+        s for s in state.schedules
+        if s.get("status") not in ("completed", "error", "cancelled")
+    ]
+    removed = original - len(state.schedules)
+    state.save()
+
+    # Also clear stale execution_status if it references a removed schedule
+    if state.execution_status:
+        sid = state.execution_status.get("schedule_id")
+        if sid and not state.find_schedule(sid):
+            state.execution_status = {}
+
+    logger.info(f"Cleared {removed} finished schedule(s)")
+    return _json_response({"success": True, "removed": removed})
+
+
 # ── Setup ──────────────────────────────────────────────────────────────────────
 
 def setup_scheduler(app: web.Application, machine, fetch_recipe_fn, fetch_all_recipes_fn):
@@ -618,6 +699,7 @@ def setup_scheduler(app: web.Application, machine, fetch_recipe_fn, fetch_all_re
     # Register routes
     app.router.add_get("/api/schedule", handle_schedule_list)
     app.router.add_post("/api/schedule", handle_schedule_create)
+    app.router.add_post("/api/schedule/clear", handle_schedule_clear)
     app.router.add_delete("/api/schedule/{id}", handle_schedule_delete)
     app.router.add_post("/api/schedule/{id}/test", handle_schedule_test)
     app.router.add_get("/api/schedule/active", handle_schedule_active)
@@ -626,7 +708,7 @@ def setup_scheduler(app: web.Application, machine, fetch_recipe_fn, fetch_all_re
     # Start the check loop on app startup
     async def start_scheduler(app):
         state._check_loop_task = asyncio.create_task(_scheduler_check_loop())
-        logger.info("Scheduler check loop started (30s interval)")
+        logger.info("Scheduler check loop started (10s interval)")
 
     async def stop_scheduler(app):
         if state._check_loop_task:

@@ -689,9 +689,14 @@
   <div class="schedule-section">
     <div class="schedule-header">
       <div class="section-title">Scheduled <span>brews</span></div>
-      <button class="ctrl-btn primary" onclick="openScheduleWizard()">
-        <span class="icon">&#128197;</span> Schedule a brew
-      </button>
+      <div style="display:flex;gap:8px;">
+        <button class="ctrl-btn" id="clearSchedulesBtn" onclick="clearFinishedSchedules()" style="display:none;font-size:11px;">
+          Clear finished
+        </button>
+        <button class="ctrl-btn primary" onclick="openScheduleWizard()">
+          <span class="icon">&#128197;</span> Schedule a brew
+        </button>
+      </div>
     </div>
     <div class="schedule-cards" id="scheduleCards">
       <div class="schedule-empty" id="scheduleEmpty">
@@ -1412,15 +1417,21 @@
   function renderSchedules() {
     const container = document.getElementById('scheduleCards');
     const empty = document.getElementById('scheduleEmpty');
+    const clearBtn = document.getElementById('clearSchedulesBtn');
 
-    // Filter out completed/cancelled older than 1 hour
+    // Show all schedules — backend auto-cleans old ones (24h)
+    // UI filters out completed/cancelled older than 2 hours for tidiness
     const active = schedules.filter(s => {
       if (s.status === 'completed' || s.status === 'cancelled') {
         const completed = new Date(s.completed_at || s.created_at);
-        return (Date.now() - completed.getTime()) < 3600000;
+        return (Date.now() - completed.getTime()) < 7200000; // 2 hours
       }
       return true;
     });
+
+    // Show "Clear finished" button if there are any finished schedules
+    const hasFinished = active.some(s => ['completed', 'error', 'cancelled'].includes(s.status));
+    if (clearBtn) clearBtn.style.display = hasFinished ? 'block' : 'none';
 
     if (active.length === 0) {
       empty.style.display = 'block';
@@ -1442,13 +1453,13 @@
       const baseTime = trigger.time || '??:??';
       let t = parseTimeToMinutes(baseTime);
 
-      timeline += timelineNode(minutesToTime(t), '⚡', 'Wake up', status === 'running');
+      timeline += timelineNode(minutesToTime(t), '&#9889;', 'Wake up', status === 'running');
       timeline += timelineConnector(`${timing.prep_minutes || 5}m`);
       t += (timing.prep_minutes || 5);
 
       drinks.forEach((d, i) => {
         const isActive = status === 'running';
-        timeline += timelineNode(minutesToTime(t), '☕', d.label, isActive);
+        timeline += timelineNode(minutesToTime(t), '&#9749;', d.label, isActive);
         if (i < drinks.length - 1) {
           timeline += timelineConnector(`${timing.between_drinks_minutes || 3.5}m`);
           t += (timing.between_drinks_minutes || 3.5);
@@ -1457,33 +1468,47 @@
 
       // Drinks preview pills
       const drinkPills = drinks.map((d, i) => {
-        const pill = `<span class="cdp-drink">☕ ${d.label}</span>`;
-        const arrow = i < drinks.length - 1 ? `<span class="cdp-arrow">→</span>` : '';
+        const pill = `<span class="cdp-drink">&#9749; ${d.label}</span>`;
+        const arrow = i < drinks.length - 1 ? `<span class="cdp-arrow">&rarr;</span>` : '';
         return pill + arrow;
       }).join('');
 
+      // Status badge styling
+      const badgeColors = {
+        pending: '', running: 'style="background:rgba(217,119,6,0.2);color:var(--accent);"',
+        completed: 'style="background:rgba(34,197,94,0.15);color:var(--success);"',
+        error: 'style="background:rgba(239,68,68,0.15);color:var(--danger);"',
+        cancelled: 'style="background:rgba(100,100,100,0.15);color:var(--text-dim);"',
+      };
+
       // Hero countdown for pending
       let heroHtml = '';
-      if (status === 'pending' && s.countdown_seconds > 0) {
-        heroHtml = `
-          <div class="countdown-hero" id="countdown-hero-${s.id}" data-target="${trigger.date}T${trigger.time}:00">
-            <div class="countdown-label">☕ Brewing in</div>
-            <div class="countdown-digits">
-              <div class="countdown-segment"><span class="countdown-number" id="cd-h-${s.id}">--</span><span class="countdown-unit">Hours</span></div>
-              <span class="countdown-separator">:</span>
-              <div class="countdown-segment"><span class="countdown-number accent" id="cd-m-${s.id}">--</span><span class="countdown-unit">Minutes</span></div>
-              <span class="countdown-separator">:</span>
-              <div class="countdown-segment"><span class="countdown-number" id="cd-s-${s.id}">--</span><span class="countdown-unit">Seconds</span></div>
-            </div>
-            <div class="countdown-drinks-preview">${drinkPills}</div>
-          </div>`;
-      } else if (status === 'pending' && (s.countdown_seconds === 0 || !s.countdown_seconds)) {
-        heroHtml = `
-          <div class="countdown-hero">
-            <div class="countdown-label">Scheduled</div>
-            <div style="font-size:20px;color:var(--text-muted);padding:12px 0;">⏳ Waiting for trigger time...</div>
-            <div class="countdown-drinks-preview">${drinkPills}</div>
-          </div>`;
+      if (status === 'pending') {
+        const triggerDt = new Date(`${trigger.date}T${trigger.time}:00`);
+        const diff = Math.max(0, Math.floor((triggerDt - new Date()) / 1000));
+
+        if (diff > 0) {
+          heroHtml = `
+            <div class="countdown-hero" id="countdown-hero-${s.id}" data-target="${trigger.date}T${trigger.time}:00">
+              <div class="countdown-label">&#9749; Brewing in</div>
+              <div class="countdown-digits">
+                <div class="countdown-segment"><span class="countdown-number" id="cd-h-${s.id}">--</span><span class="countdown-unit">Hours</span></div>
+                <span class="countdown-separator">:</span>
+                <div class="countdown-segment"><span class="countdown-number accent" id="cd-m-${s.id}">--</span><span class="countdown-unit">Minutes</span></div>
+                <span class="countdown-separator">:</span>
+                <div class="countdown-segment"><span class="countdown-number" id="cd-s-${s.id}">--</span><span class="countdown-unit">Seconds</span></div>
+              </div>
+              <div class="countdown-drinks-preview">${drinkPills}</div>
+            </div>`;
+        } else {
+          // Countdown expired but server hasn't triggered yet (10s check loop)
+          heroHtml = `
+            <div class="countdown-hero">
+              <div class="countdown-label" style="color:var(--accent);">&#9889; Triggering...</div>
+              <div style="font-size:16px;color:var(--text-muted);padding:12px 0;">Brew sequence starting momentarily</div>
+              <div class="countdown-drinks-preview">${drinkPills}</div>
+            </div>`;
+        }
       }
 
       // Running state hero
@@ -1491,7 +1516,7 @@
       if (status === 'running') {
         runningHtml = `
           <div class="running-status" id="running-status-${s.id}">
-            <span class="running-step-icon" id="running-icon-${s.id}">⚡</span>
+            <span class="running-step-icon" id="running-icon-${s.id}">&#9889;</span>
             <div class="running-step-text" id="running-text-${s.id}">Starting brew sequence...</div>
             <div class="running-step-detail" id="running-detail-${s.id}">Connecting to machine</div>
           </div>`;
@@ -1500,9 +1525,12 @@
       // Completed hero
       let completedHtml = '';
       if (status === 'completed') {
+        const completedAt = s.completed_at ? new Date(s.completed_at).toLocaleTimeString('en-US', {hour:'2-digit', minute:'2-digit'}) : '';
         completedHtml = `
-          <div style="text-align:center;padding:16px 0;font-size:32px;">
-            ✅ <span style="font-size:16px;color:var(--success);font-weight:600;">All drinks brewed successfully!</span>
+          <div style="text-align:center;padding:16px 0;">
+            <div style="font-size:28px;margin-bottom:6px;">&#10004;</div>
+            <div style="color:var(--success);font-size:14px;font-weight:600;">All drinks brewed successfully!</div>
+            ${completedAt ? `<div style="color:var(--text-dim);font-size:12px;margin-top:4px;">Completed at ${completedAt}</div>` : ''}
           </div>`;
       }
 
@@ -1511,7 +1539,7 @@
       if (status === 'error') {
         errorHtml = `
           <div style="text-align:center;padding:16px 0;">
-            <div style="font-size:32px;margin-bottom:8px;">⚠️</div>
+            <div style="font-size:28px;margin-bottom:6px;">&#9888;</div>
             <div style="color:var(--danger);font-size:14px;font-weight:600;">${s.error || 'Brew sequence failed'}</div>
           </div>`;
       }
@@ -1526,13 +1554,13 @@
         <div class="schedule-card ${status}">
           <div class="schedule-card-header">
             <div class="schedule-card-title">
-              <span class="schedule-status-badge ${status}">${status}</span>
-              📅 ${datePretty} at ${trigger.time}
+              <span class="schedule-status-badge ${status}" ${badgeColors[status] || ''}>${status}</span>
+              &#128197; ${datePretty} at ${trigger.time}
             </div>
             <div class="schedule-card-actions">
               ${status === 'pending' ? `<button onclick="deleteSchedule('${s.id}')">Cancel</button>` : ''}
               ${status === 'running' ? `<button class="del" onclick="cancelActiveBrew()">Stop</button>` : ''}
-              ${status === 'completed' || status === 'error' ? `<button class="del" onclick="deleteSchedule('${s.id}')">Remove</button>` : ''}
+              ${['completed', 'error', 'cancelled'].includes(status) ? `<button class="del" onclick="deleteSchedule('${s.id}')">Remove</button>` : ''}
             </div>
           </div>
           ${heroHtml}
@@ -1551,6 +1579,7 @@
 
   // ── Client-side per-second countdown ticking ──────────
   let _countdownInterval = null;
+  let _zeroFetchScheduled = false;
 
   function _startCountdownTicks() {
     // Clear any previous interval
@@ -1576,9 +1605,19 @@
         if (mEl) mEl.textContent = String(m).padStart(2, '0');
         if (sEl) sEl.textContent = String(s).padStart(2, '0');
 
-        // When it hits zero, refresh from server
-        if (diff === 0) {
-          fetchSchedules();
+        // When countdown hits zero, poll rapidly for status change
+        if (diff === 0 && !_zeroFetchScheduled) {
+          _zeroFetchScheduled = true;
+          // Poll every 3s for the next 30s to catch the trigger
+          let polls = 0;
+          const rapidPoll = setInterval(() => {
+            fetchSchedules();
+            polls++;
+            if (polls >= 10) {
+              clearInterval(rapidPoll);
+              _zeroFetchScheduled = false;
+            }
+          }, 3000);
         }
       });
     };
@@ -1601,11 +1640,33 @@
 
   async function deleteSchedule(id) {
     try {
-      await fetch(API + `/api/schedule/${id}`, { method: 'DELETE' });
-      showToast('Schedule removed', 'info');
-      fetchSchedules();
+      const res = await fetch(API + `/api/schedule/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        showToast('Schedule removed', 'info');
+        // Remove from local state immediately for instant UI feedback
+        schedules = schedules.filter(s => s.id !== id);
+        renderSchedules();
+      } else {
+        showToast(data.error || 'Failed to remove', 'error');
+      }
+      // Also refresh from server to be sure
+      await fetchSchedules();
     } catch (e) {
       showToast('Failed to remove schedule', 'error');
+    }
+  }
+
+  async function clearFinishedSchedules() {
+    try {
+      const res = await fetch(API + '/api/schedule/clear', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        showToast(`Cleared ${data.removed} finished schedule(s)`, 'info');
+      }
+      await fetchSchedules();
+    } catch (e) {
+      showToast('Failed to clear schedules', 'error');
     }
   }
 
@@ -1613,17 +1674,22 @@
     try {
       await fetch(API + '/api/schedule/active/cancel', { method: 'POST' });
       showToast('Cancelling brew...', 'info');
-      fetchSchedules();
+      // Rapid poll to catch the cancellation
+      setTimeout(fetchSchedules, 1000);
+      setTimeout(fetchSchedules, 3000);
     } catch (e) {
       showToast('Failed to cancel brew', 'error');
     }
   }
 
   // Poll active brew status for running schedules
+  let _lastActiveStep = null;
+
   async function pollActiveStatus() {
     try {
       const res = await fetch(API + '/api/schedule/active');
       const data = await res.json();
+
       if (data.active && data.schedule_id) {
         // Update progress bar
         const bar = document.getElementById(`sched-progress-${data.schedule_id}`);
@@ -1631,30 +1697,35 @@
 
         // Update running status hero
         const stepIcons = {
-          connecting: '🔗', powering_on: '⚡', heating: '🔥',
-          prepping: '🫗', profile: '👤', brewing: '☕',
-          waiting: '⏳', completed: '✅', error: '⚠️',
+          connecting: '&#128279;', powering_on: '&#9889;', heating: '&#128293;',
+          prepping: '&#129371;', profile: '&#128100;', brewing: '&#9749;',
+          waiting: '&#9203;', completed: '&#10004;', error: '&#9888;',
         };
+        const stepNames = {
+          connecting: 'Connecting to machine...',
+          powering_on: 'Waking up the machine',
+          heating: 'Heating up...',
+          prepping: 'Prepare the milk frother!',
+          profile: 'Setting profile...',
+          brewing: 'Brewing your drink!',
+          waiting: 'Waiting between drinks...',
+          completed: 'All done!',
+          error: 'Something went wrong',
+        };
+
         const iconEl = document.getElementById(`running-icon-${data.schedule_id}`);
         const textEl = document.getElementById(`running-text-${data.schedule_id}`);
         const detailEl = document.getElementById(`running-detail-${data.schedule_id}`);
 
-        if (iconEl) iconEl.textContent = stepIcons[data.step] || '☕';
-        if (textEl) {
-          const stepNames = {
-            connecting: 'Connecting to machine...',
-            powering_on: 'Waking up the machine',
-            heating: 'Heating up...',
-            prepping: '🫗 Prepare the milk frother!',
-            profile: 'Setting profile...',
-            brewing: 'Brewing your drink!',
-            waiting: 'Waiting between drinks...',
-            completed: 'All done!',
-            error: 'Something went wrong',
-          };
-          textEl.textContent = stepNames[data.step] || data.step;
-        }
+        if (iconEl) iconEl.innerHTML = stepIcons[data.step] || '&#9749;';
+        if (textEl) textEl.textContent = stepNames[data.step] || data.step;
         if (detailEl) detailEl.textContent = data.detail || '';
+
+        _lastActiveStep = data.step;
+      } else if (_lastActiveStep && _lastActiveStep !== 'completed') {
+        // Brew just finished — refresh schedule list to show final state
+        _lastActiveStep = null;
+        fetchSchedules();
       }
     } catch (e) { /* ignore */ }
   }

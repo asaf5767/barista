@@ -8,6 +8,7 @@ An open-source BLE-to-HTTP bridge that turns your De'Longhi ECAM coffee machine 
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-3776AB.svg?style=flat&logo=python&logoColor=white)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg?style=flat)](LICENSE)
+[![PyPI](https://img.shields.io/pypi/v/barista-coffee.svg?style=flat)](https://pypi.org/project/barista-coffee/)
 
 ---
 
@@ -35,7 +36,7 @@ De'Longhi makes incredible coffee machines with Bluetooth — then locks you int
 **Barista** talks to your De'Longhi over Bluetooth Low Energy and exposes everything through a clean HTTP API and a beautiful web UI.
 
 ```bash
-python -m pip install "git+https://github.com/asaf5767/barista.git@master"
+python -m pip install barista-coffee
 barista scan                           # Find your machine
 barista start --address AA:BB:CC:DD    # Start the server
 ```
@@ -48,10 +49,10 @@ Then open **http://localhost:8080** — or hit the API from anywhere on your net
 
 ### 1. Install
 
-Requires Python 3.11+ and Git. Barista has not yet been released on PyPI; install directly from this repository until an official release is available.
+Requires Python 3.11+. Install the official package from PyPI:
 
 ```bash
-python -m pip install "git+https://github.com/asaf5767/barista.git@master"
+python -m pip install barista-coffee
 ```
 
 ### 2. Find Your Machine

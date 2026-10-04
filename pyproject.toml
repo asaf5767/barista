@@ -37,10 +37,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/assafakiva/barista"
-Repository = "https://github.com/assafakiva/barista"
-Issues = "https://github.com/assafakiva/barista/issues"
-Documentation = "https://github.com/assafakiva/barista#readme"
+Homepage = "https://github.com/asaf5767/barista"
+Repository = "https://github.com/asaf5767/barista"
+Issues = "https://github.com/asaf5767/barista/issues"
+Documentation = "https://github.com/asaf5767/barista#readme"
 
 [project.scripts]
 barista = "barista.cli:main"

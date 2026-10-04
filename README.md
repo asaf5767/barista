@@ -8,7 +8,6 @@ An open-source BLE-to-HTTP bridge that turns your De'Longhi ECAM coffee machine 
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-3776AB.svg?style=flat&logo=python&logoColor=white)](https://www.python.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg?style=flat)](LICENSE)
-[![PyPI](https://img.shields.io/pypi/v/barista-coffee.svg?style=flat)](https://pypi.org/project/barista-coffee/)
 
 ---
 
@@ -36,7 +35,7 @@ De'Longhi makes incredible coffee machines with Bluetooth — then locks you int
 **Barista** talks to your De'Longhi over Bluetooth Low Energy and exposes everything through a clean HTTP API and a beautiful web UI.
 
 ```bash
-pip install barista-coffee
+python -m pip install "git+https://github.com/asaf5767/barista.git@master"
 barista scan                           # Find your machine
 barista start --address AA:BB:CC:DD    # Start the server
 ```
@@ -49,8 +48,10 @@ Then open **http://localhost:8080** — or hit the API from anywhere on your net
 
 ### 1. Install
 
+Requires Python 3.11+ and Git. Barista has not yet been released on PyPI; install directly from this repository until an official release is available.
+
 ```bash
-pip install barista-coffee
+python -m pip install "git+https://github.com/asaf5767/barista.git@master"
 ```
 
 ### 2. Find Your Machine
@@ -254,7 +255,7 @@ Barista works with De'Longhi machines that use the **ECAM Bluetooth protocol** v
 | Magnifica Evo (ECAM 290.x) | Same ECAM protocol |
 | Eletta Explore (ECAM 450.x) | Same ECAM protocol |
 
-> **Your machine isn't listed?** If it works with the "De'Longhi Coffee Link" app over Bluetooth, it likely uses the same ECAM protocol. Try `barista scan` — if it finds your machine, there's a good chance it works. Please [open an issue](https://github.com/assafakiva/barista/issues) to report compatibility!
+> **Your machine isn't listed?** If it works with the "De'Longhi Coffee Link" app over Bluetooth, it likely uses the same ECAM protocol. Try `barista scan` — if it finds your machine, there's a good chance it works. Please [open an issue](https://github.com/asaf5767/barista/issues) to report compatibility!
 
 <br>
 

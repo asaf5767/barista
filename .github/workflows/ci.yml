@@ -2,79 +2,124 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [master]
+    tags: ["v*"]
   pull_request:
-    branches: [main]
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
   test:
+    name: Test (${{ matrix.os }}, py${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         python-version: ["3.11", "3.12", "3.13"]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - name: Set up uv and Python ${{ matrix.python-version }}
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
         with:
           python-version: ${{ matrix.python-version }}
+          enable-cache: true
+          cache-dependency-glob: |
+            pyproject.toml
+            uv.lock
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e .
+      - name: Install project
+        run: uv sync
 
       - name: Verify package imports
+        shell: bash
         run: |
-          python -c "from barista.protocol import BeverageId, cmd_brew, cmd_monitor, compute_crc, VERIFIED_COMMANDS"
-          python -c "from barista.ble import DelonghiBLE"
-          python -c "from barista.server import create_app"
-          python -c "from barista.cli import main"
+          uv run python -c "from barista.protocol import BeverageId, cmd_brew, cmd_monitor, compute_crc, VERIFIED_COMMANDS"
+          uv run python -c "from barista.ble import DelonghiBLE"
+          uv run python -c "from barista.server import create_app"
+          uv run python -c "from barista.cli import main"
 
       - name: Verify CLI
-        run: python -m barista --help
+        run: uv run python -m barista --help
 
       - name: Verify protocol integrity
+        shell: bash
         run: |
-          python -c "
+          uv run python - <<'PY'
           from barista.protocol import *
 
-          # Verify known-good CRC values
+          # Known-good CRC values
           assert cmd_power_on() == bytes([0x0d, 0x07, 0x84, 0x0f, 0x02, 0x01, 0x55, 0x12])
           assert cmd_monitor() == bytes([0x0d, 0x05, 0x75, 0x0f, 0xda, 0x25])
 
-          # Verify verified commands have correct CRC
+          # Verified commands must have correct CRC
           for name, cmd in VERIFIED_COMMANDS.items():
-              assert verify_packet(cmd), f'CRC mismatch in verified command: {name}'
+              assert verify_packet(cmd), f"CRC mismatch in verified command: {name}"
 
-          # Verify all beverage IDs are defined
+          # All beverage IDs defined
           assert len(get_beverage_names()) >= 20
 
-          print('All protocol checks passed')
-          "
+          print("All protocol checks passed")
+          PY
 
-  publish:
+  build:
+    name: Build distribution
     needs: test
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7
         with:
           python-version: "3.12"
+          enable-cache: true
 
-      - name: Build package
+      - name: Build sdist and wheel
         run: |
-          pip install build
-          python -m build
+          uv build
+          uvx twine check --strict dist/*
+
+      - name: Smoke-test the built wheel in an isolated env
+        run: uv run --isolated --no-project --with ./dist/*.whl -- python -m barista --help
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      id-token: write  # required for PyPI trusted publishing (OIDC)
+
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: dist
+          path: dist/
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@release/v1
+        uses: pypa/gh-action-pypi-publish@4bb033805d9e19112d8c697528791ff53f6c2f74
         with:
-          password: ${{ secrets.PYPI_API_TOKEN }}
+          packages-dir: dist/

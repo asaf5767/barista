@@ -10,7 +10,7 @@ The most valuable contribution is testing Barista on different De'Longhi models.
 
 1. Run `barista scan` and note the device name
 2. Run `barista start --address YOUR_ADDRESS` and try brewing
-3. [Open an issue](https://github.com/assafakiva/barista/issues/new) with:
+3. [Open an issue](https://github.com/asaf5767/barista/issues/new) with:
    - Your machine model (e.g., "Primadonna Elite ECAM 650.75.MS")
    - Whether scanning found it
    - Whether brewing works
@@ -35,9 +35,10 @@ If you've sniffed new BLE commands or figured out undocumented parameters:
 ## Development Setup
 
 ```bash
-git clone https://github.com/assafakiva/barista.git
+git clone https://github.com/asaf5767/barista.git
 cd barista
-pip install -e ".[dev]"
+python -m pip install -e ".[dev]"
+python -m pytest -q
 ```
 
 ## Code Style
@@ -63,3 +64,7 @@ barista/
 ## License
 
 By contributing, you agree that your contributions will be licensed under the MIT License.
+
+## Releases
+
+See [docs/RELEASING.md](docs/RELEASING.md) for PyPI setup and release checks.
